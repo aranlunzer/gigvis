@@ -28,10 +28,13 @@ view_dynamic <- function(gv, envir = parent.frame(), controls = NULL,
 
   server <- function(input, output, session) {
     # Set up observers for the spec and the data
-    observeGigvis(gv, plot_id, session)
+    observeGigvis(gv, plot_id, session, renderer)
 
     # User interface elements (in the sidebar)
     output$gigvis_ui <- renderControls(gv)
+
+    # (ael) allow supply of custom observer of changes in input
+    if (!is.null(gv$customObserver)) gv$customObserver(input);
 
     # Stop the app when the quit button is clicked
     observe({

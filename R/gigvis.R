@@ -8,11 +8,18 @@
 #'   \code{\link{scales}}, \code{\link{axis}} or \code{\link{legend}} objects
 #' @export
 #' @import assertthat
+# ael added renderer and customObserver
+gigvis_extended <- function(customObserver = NULL, renderer = NULL, ...) {
+  vis <- gigvis(...)
+  if (!is.null(customObserver)) { vis[["customObserver"]] = customObserver }
+  if (!is.null(renderer)) { vis[["renderer"]] = renderer }
+  vis
+}
+
 gigvis <- function(data = NULL, props = NULL, ...) {
   args <- list(...)
   classes <- vapply(args, function(x) last(class(x)), character(1))
   components <- gigvis_components(...)
-
   vis <- structure(
     list(
       data = as.pipeline(data), 
@@ -67,8 +74,11 @@ print.gigvis <- function(x, dynamic = NA, ...) {
 
   if (is.na(dynamic)) dynamic <- is.dynamic(x)
   
+  # ael added renderer handling, for now just on dynamic
   if (dynamic) {
-    view_dynamic(x)
+    if (!is.null(x$renderer)) {
+      view_dynamic(x, renderer = x$renderer)
+    } else { view_dynamic(x) }
   } else {
     view_static(x)
   }

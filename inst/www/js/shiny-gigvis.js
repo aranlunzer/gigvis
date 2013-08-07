@@ -9,6 +9,7 @@ $(function(){ //DOM Ready
       Shiny.unbindAll(el);
       this.renderError(el, err);
     },
+    // ael - this code is installed, but i'm not sure when it would be called
     renderValue: function(el, data) {
       vg.parse.spec(data.spec, function(chart) {
         chart({el: el}).update();
@@ -44,9 +45,26 @@ Shiny.addCustomMessageHandler("gigvis_data", function(message) {
 Shiny.addCustomMessageHandler("gigvis_vega_spec", function(message) {
   var plotId = message.plotId;
   var spec = message.spec;
+  var renderer = message.renderer || "canvas";  // ael
 
   vg.parse.spec(spec, function(chart) {
-    var chart = chart({ el: "#" + plotId, renderer: "canvas" });
+    console.log(spec);  // harmless and useful
+    var chart = chart({ el: "#" + plotId, renderer: renderer });  // ael
+    // ael experiment
+    if (true) { // }(message.interactivitySpec) {
+      chart.on("mouseover", function(event, item) {
+        // debugger;
+        // console.log(item.key);  // NB zero-based
+        if (item._svg.nodeName == "path") {
+          window.Shiny.onInputChange("trigger", "in:"+(item.key+1))
+        }
+      })
+      chart.on("mouseout", function(event, item) {
+        if (item._svg.nodeName == "path") {
+          window.Shiny.onInputChange("trigger", "out:"+(item.key+1))
+        }
+      })
+    }
     $("#" + plotId).data("gigvis-chart", chart);
     gigvisInit(plotId);
   });
