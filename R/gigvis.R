@@ -9,7 +9,7 @@
 #' @export
 #' @import assertthat
 # ael added renderer and customObserver
-gigvis_extended <- function(customObserver = NULL, renderer = NULL, ...) {
+gigvis_extended <- function(..., customObserver = NULL, renderer = "svg") {
   vis <- gigvis(...)
   if (!is.null(customObserver)) { vis[["customObserver"]] = customObserver }
   if (!is.null(renderer)) { vis[["renderer"]] = renderer }

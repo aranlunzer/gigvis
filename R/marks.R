@@ -84,7 +84,7 @@ mark_symbol <- function(props = NULL, data = NULL) mark("symbol", props = props,
 #' @S3method valid_mark_properties mark_symbol
 valid_mark_properties.mark_symbol <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "size", "shape")
+    "strokeOpacity", "size", "shape", "provenance")
 }
 #' @S3method default_mark_properties mark_symbol
 default_mark_properties.mark_symbol <- function(mark) {
@@ -153,7 +153,7 @@ mark_rect <- function(props = NULL, data = NULL) mark("rect", props = props, dat
 #' @S3method valid_mark_properties mark_rect
 valid_mark_properties.mark_rect <- function(mark) {
   c("x", "x2", "y", "y2", "width", "opacity", "fill", "fillOpacity", "stroke",
-    "strokeWidth", "strokeOpacity")
+    "strokeWidth", "strokeOpacity", "provenance")
 }
 #' @S3method default_mark_properties mark_rect
 default_mark_properties.mark_rect <- function(mark) {

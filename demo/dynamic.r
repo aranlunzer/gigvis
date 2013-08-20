@@ -1,4 +1,5 @@
 library(gigvis)
+library(shiny)
 
 # Basic dynamic example
 mtc1 <- reactive({
@@ -8,6 +9,17 @@ mtc1 <- reactive({
 gigvis(mtc1, props(x ~ wt, y ~ mpg),
   mark_symbol()
 )
+
+# ael doctored dynamic example
+mtc1 <- reactive({
+  invalidateLater(1000, NULL);
+  mtcars[sample(nrow(mtcars), 10), ]
+})
+g <- gigvis(mtc1,
+      props(x ~ wt, y ~ mpg),
+      mark_symbol()
+      )
+view_lively(g)
 
 # Rapidly changing dynamic example
 df <- data.frame(x = runif(20), y = runif(20))

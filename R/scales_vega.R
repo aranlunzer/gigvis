@@ -1,5 +1,6 @@
 # Given a gigvis object, return all needed vega scales, with correct
 # domain values set.
+# ael: changed to expect the elements in data_table to be static, not reactive
 find_scales <- function(x, nodes, data_table) {
   
   scales <- x$scales  
@@ -8,7 +9,7 @@ find_scales <- function(x, nodes, data_table) {
   scale_types <- list()
   scale_uses <- list()
   for (node in nodes) {
-    data <- isolate(data_table[[node$pipeline_id]]())
+    data <- data_table[[node$pipeline_id]]
     for (prop_n in names(node$props)) {
       prop <- node$props[[prop_n]]
       scale <- prop_scale(prop, prop_to_scale(prop_n))
