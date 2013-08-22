@@ -60,7 +60,7 @@ branch_histogram <- function(props = NULL, ...) {
     y2 = constant(0, scale = TRUE),
     provenance = variable(quote(indices__), scale = FALSE)
   )
-  props <- merge_props(props, default)
+  props <- merge_props(default, props)
   
   node(
     data = transform_bin(...),
@@ -77,7 +77,7 @@ branch_freqpoly <- function(props = NULL, ...) {
     x ~ x, 
     y ~ count__
   )
-  props <- merge_props(props, default)
+  props <- merge_props(default, props)
   
   node(
     data = transform_bin(...),

@@ -4,7 +4,7 @@ library(ggplot2)
 #options(shiny.reactlog=T)
 
 values <- reactiveValues(trigger = 0, binwidth=0.5, binoffset=0, check1="false", check2="false", argList = NULL)
-workingData <- diamonds
+workingData <- diamonds[sample(nrow(diamonds), 1000), ]
 observer = function(input) {
   observe({
     if (!is.null(input$trigger)) {
@@ -48,13 +48,17 @@ dataReactive <- reactive({ values$trigger; workingData }, label="dataReactive")
 values$argList <- reactive({
   ls <- list(
     dataReactive(),
-    props(x ~ carat, y~price),
-    mark_symbol(props(y~price, fill="blue"))
-    # scale_quantitative("x", domain = c(0, 7), range = "width"),
+    props(x ~ carat),
+    mark_symbol(props(y~price, fill="blue")),
+    scale_quantitative("x", domain = c(0, 3), range = "width"),
+    axis("y", scale="y2", orient="right"),
+    scale_quantitative("y2", domain=c(0,500), range="height")
   )
   ind <- length(ls)+1
   if (values$check1 == "false") {
-    ls[[ind]] = branch_histogram(props(fill="green"), binwidth=values$binwidth, origin=values$binwidth*values$binoffset)
+    ls[[ind]] = node(
+      branch_histogram(props(y = variable(quote(count__), scale="y2"), fill=rgb(0,1,0,0.4)), binwidth=values$binwidth, origin=values$binwidth*values$binoffset)
+    )
   } else {
     if (values$check2 == "false") {
       ls[[ind]] = branch_freqpoly(props(stroke="black", strokeWidth=1.5), binwidth=values$binwidth, origin=values$binoffset)
