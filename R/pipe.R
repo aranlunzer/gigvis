@@ -5,6 +5,7 @@
 #' @keywords internal
 #' @export
 pipe <- function(type, ...) {
+  check_empty_args()
   structure(
     compact(list(...)),
     class = c(type, "pipe")
@@ -23,7 +24,7 @@ as.pipe <- function(x, ...) UseMethod("as.pipe")
 as.pipe.pipe <- function(x, ...) x
 
 #' @S3method as.pipe default
-as.pipe.default <- function(x, name = NULL, ...) { 
+as.pipe.default <- function(x, name = NULL, ...) {
   if (is.null(name)) name <- deparse(substitute(x))
   datasource(x, name = name)
 }

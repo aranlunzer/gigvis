@@ -5,6 +5,21 @@ dots <- function(...) {
   eval(substitute(alist(...)))
 }
 
+dot_names <- function(...) {
+  args <- dots(...)
+  
+  nms <- names(args) %||% rep("", length(args))
+  missing <- nms == ""
+  if (all(!missing)) return(args)
+  
+  deparse2 <- function(x) paste(deparse(x, 500L), collapse = "")
+  defaults <- vapply(args[missing], deparse2, character(1), USE.NAMES = FALSE)
+  
+  nms[missing] <- defaults
+  nms
+}
+
+
 "%||%" <- function(a, b) if (!is.null(a)) a else b
 
 # Given a vector or list, drop all the NULL items in it
@@ -61,16 +76,24 @@ assert_installed <- function(pkg) {
 
 # Determine if an object is the result of quote()
 is.quoted <- function(x) {
-  is.atomic(x) || is.call(x) || is.name(x)
+  is.call(x) || is.name(x)
 }
 
-compact <- function(x) Filter(Negate(empty), x)
+# Drop all empty items from a list - except environments, which stay even if
+# they are empty.
+compact <- function(x) {
+  non_empty <- !vapply(x, empty, logical(1))
+  env <- vapply(x, is.environment, logical(1))
+  x[non_empty | env]
+}
 
 param_string <- function(x, collapse = TRUE) {
   is_reactive <- vapply(x, is.reactive, logical(1))
+  is_env <- vapply(x, is.environment, logical(1))
   is_string <- vapply(x, is.character, logical(1))
 
   x[is_reactive] <- "<reactive>"
+  x[is_env] <- vapply(x[is_env], format, character(1))
   values <- vapply(x, toString, character(1))
   values[is_string] <- paste0("'", encodeString(values[is_string]), "'")
 
@@ -81,6 +104,12 @@ param_string <- function(x, collapse = TRUE) {
 # Given a string, return a string that is safe as a vega variable.
 # Replaces . with \.
 safe_vega_var <- function(x) {
+  if (is.name(x)) {
+    x <- as.character(x)
+  } else if (is.quoted(x)) {
+    x <- paste0(deparse(x, width = 500), collapse = "")
+  }
+  
   gsub(".", "\\.", x, fixed = TRUE)
 }
 
@@ -89,11 +118,30 @@ empty <- function(x) length(x) == 0
 quickdf <- function(list) {
   class(list) <- "data.frame"
   attr(list, "row.names") <- c(NA_integer_, -length(list[[1]]))
-  
+
   list
 }
 
 # Generate a random number to use in IDs
 rand_id <- function(prefix = "") {
   paste0(prefix, floor(runif(1, 1e8, 1e9-1)))
+}
+
+is_missing <- function(x) identical(x, quote(expr = ))
+
+# Check if the calling function had missing arguments when it was called, and
+# throw an informative error if so. This happens when there are extra commas in
+# the call, as in f(a, 2, ).
+check_empty_args <- function() {
+  call <- sys.call(-1)
+  args <- as.list(call[-1])
+
+  missing <- vapply(args, is_missing, logical(1))
+
+  if (!any(missing)) return(invisible(TRUE))
+
+  stop("Extra comma at position", if (sum(missing) > 1) "s", " ",
+    paste0(which(missing), collapse = ", "),
+    " in call to ", as.character(call[[1]]), "()",
+    call. = FALSE)
 }

@@ -6,7 +6,7 @@
 #' @importFrom digest digest
 #' @examples
 #' datasource(mtcars)
-#' 
+#'
 #' # A simple example of a reactive data source
 #' library(shiny)
 #' v <- reactiveValues(n = 10)
@@ -19,17 +19,17 @@
 #' sluice(p, props)
 datasource <- function(data, name = deparse(substitute(data))) {
   if (is.null(data)) return(NULL)
-  
+
   structure(list(
-    env = environment(), 
+    env = environment(),
     name = name,
     hash = digest(data)
   ), class = c(source_class(data), "datasource", "pipe"))
 }
 
 source_class <- function(x) UseMethod("source_class")
-#' @S3method source_class refMethodDef
-source_class.refMethodDef <- function(x) "datasource_reactive"
+#' @S3method source_class reactive
+source_class.reactive <- function(x) "datasource_reactive"
 #' @S3method source_class default
 source_class.default <- function(x) NULL
 

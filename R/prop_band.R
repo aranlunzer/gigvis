@@ -1,11 +1,10 @@
 #' A band
-#' 
+#'
 #' Bands are used to set the width or height on categorical scales.
-#' 
+#'
 #' @export
-#' @inheritParams constant
 band <- function(offset = NULL, mult = NULL) {
-  prop("band", offset = offset, mult = mult)  
+  prop("band", offset = offset, mult = mult)
 }
 
 #' @S3method format band
@@ -17,6 +16,7 @@ format.band <- function(x, ...) {
 print.band <- function(x, ...) cat(format(x, ...), "\n", sep = "")
 
 #' @rdname band
+#' @param x object to for band-ness
 is.band <- function(x) inherits(x, "band")
 
 #' @S3method prop_value band

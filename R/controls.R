@@ -1,33 +1,35 @@
-controls <- function(x, ...) UseMethod("controls")
+# Extract a UI control from an object
+controls <- function(x, session = NULL, ...) UseMethod("controls")
 
 # Assumes that controls have id status set - delayed reactive will do this
 
-#' @S3method controls gigvis_node
-controls.gigvis_node <- function(x, ...) {
-  t_controls <- unlist(lapply(x$data, controls), recursive = FALSE)
-  p_controls <- unlist(lapply(x$props, controls), recursive = FALSE)
-  c_controls <- unlist(lapply(x$children, controls), recursive = FALSE)
-  
+#' @S3method controls ggvis_node
+controls.ggvis_node <- function(x, session = NULL, ...) {
+  t_controls <- unlist(unname(lapply(x$data, controls)), recursive = FALSE)
+  p_controls <- unlist(unname(lapply(x$props, controls)), recursive = FALSE)
+  c_controls <- unlist(unname(lapply(x$children, controls)), recursive = FALSE)
+
   all <- compact(c(t_controls, p_controls, c_controls))
-  ids <- vapply(all, function(x) attr(x, "id"), character(1))
-  all[!duplicated(ids)]
+  all[!duplicated(names(all))]
 }
 
 #' @S3method controls list
-controls.list <- function(x, ...) {
-  dr <- vapply(x, is.delayed_reactive, logical(1))
-  unlist(lapply(x[dr], controls), recursive = FALSE, use.names = FALSE)
+controls.list <- function(x, session = NULL, ...) {
+  inp <- vapply(x, is.input, logical(1))
+  # Remove top-level name (method, n, etc), but preserve second-level name,
+  # which is the id of the input.
+  ctrls <- lapply(x[inp], controls, session)
+  unlist(unname(ctrls), recursive = FALSE, use.names = TRUE)
 }
-#' @S3method controls gigvis_props
-controls.gigvis_props <- controls.list
-#' @S3method controls transform
-controls.transform <- controls.list
+#' @S3method controls ggvis_props
+controls.ggvis_props <- controls.list
+#' @S3method controls prop
+controls.prop <- controls.list
 
-#' @S3method controls delayed_reactive
-controls.delayed_reactive <- function(x, ...) {
-  # Assuming each reactive only provides one control
-  list(x$controls)
+#' @S3method controls transform
+controls.transform <- function(x) {
+  c(controls.list(x), controls.list(x$dots))
 }
 
 #' @S3method controls default
-controls.default <- function(x, ...) NULL
+controls.default <- function(x, session = NULL, ...) NULL

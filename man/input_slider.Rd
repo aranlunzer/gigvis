@@ -5,7 +5,7 @@
   input_slider(min, max, value = min, step = NULL,
     round = FALSE, format = "#,##0.#####", locale = "us",
     ticks = TRUE, animate = FALSE, label = "",
-    id = rand_id("slider_"))
+    id = rand_id("slider_"), map = identity, scale = FALSE)
 }
 \arguments{
   \item{min}{The minimum value (inclusive) that can be
@@ -47,6 +47,18 @@
 
   \item{label}{A descriptive label to be displayed with the
   widget.}
+
+  \item{id}{a unique identifier for this interactive input
+  - used to de-duplicate the controls when the same input
+  is used in multiple places in a visualisation}
+
+  \item{map}{a function with a singe argument that takes
+  the value returned from the input control and converts it
+  to an argument useful for ggvis.  Defaults to
+  \code{identity}, leaving the output unchanged.}
+
+  \item{scale}{default scale value when this input is used
+  in a prop}
 }
 \description{
   Create a placeholder for a slider input.
@@ -57,6 +69,10 @@ input_slider(0, 100, label = "binwidth")
 input_slider(0, 100, value = 50)
 }
 \seealso{
-  Other interactive input: \code{\link{input_select}}
+  Other interactive input: \code{\link{input_checkbox}},
+  \code{\link{input_checkboxgroup}},
+  \code{\link{input_numeric}},
+  \code{\link{input_radiobuttons}},
+  \code{\link{input_select}}, \code{\link{input_text}}
 }
 

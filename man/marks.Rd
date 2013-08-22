@@ -23,12 +23,19 @@
 
   mark_text(props = NULL, data = NULL)
 }
+\arguments{
+  \item{props}{A \code{\link{props}} object, named
+  according to the properties listed below.}
+
+  \item{data}{An optional dataset, if you want to override
+  the usual data inheritance for this mark.}
+}
 \description{
   These functions create mark objects, corresponding to
   vega marks. Marks are leaves in the plot tree, and
   control the details of the final rendering. Marks are
   equivalent to the basic geoms in ggplot2 (e.g. point,
-  line, polygon), where gigvis branches correspond to
+  line, polygon), where ggvis branches correspond to
   combinations of geoms and statistical transforms.
 }
 \section{Properties}{
@@ -78,9 +85,6 @@
 
   To each property, you can assign any property object
   (\code{\link{prop}}) either locally (i.e. in the mark),
-  or in a parent \code{\link{node}}. There are many
-  available property types to choose from:
-  \code{\link{variable}} and \code{\link{constant}} are the
-  most commonly used.
+  or in a parent \code{\link{node}}.
 }
 

@@ -1,21 +1,24 @@
-#' Coerce an gigvis object to a vega list.
-#' 
-#' This generic function powers the coercion of gigvis objects to vega
+#' Coerce an ggvis object to a vega list.
+#'
+#' This generic function powers the coercion of ggvis objects to vega
 #' compatible data structures.
-#' 
+#'
 #' @param x an object to convert to vega
 #' @return a list. When converted to JSON, will be the type of structure
 #'   that vega expects.
+#' @keywords internal
 as.vega <- function(x, ...) {
   UseMethod("as.vega", x)
 }
 
-#' @method as.vega gigvis
+#' @method as.vega ggvis
 #' @export
 #' @rdname as.vega
 #' @param width,height width and height of plot, in pixels
 #' @param padding padding, as described by \code{\link{padding}}
-as.vega.gigvis <- function(x, width = 600, height = 400, padding = NULL,
+#' @param session a session object from shiny
+#' @param dynamic whether to generate dynamic or static spec
+as.vega.ggvis <- function(x, width = 600, height = 400, padding = NULL,
                            session = NULL, dynamic = FALSE, ...) {
   if (is.null(padding)) padding <- padding()
 
@@ -47,10 +50,10 @@ as.vega.gigvis <- function(x, width = 600, height = 400, padding = NULL,
     }), recursive = FALSE)
     scales <- find_scales(x, nodes, data_table)
   }
-  
+
   axes <- add_default_axes(x$axes, scales)
   legends <- add_default_legends(x$legends, scales)
-  
+
   spec <- list(
     data = datasets,
     scales = unname(scales),
@@ -65,7 +68,7 @@ as.vega.gigvis <- function(x, width = 600, height = 400, padding = NULL,
   structure(spec, data_table = data_table)
 }
 
-# Given a gigvis mark object and set of scales, output a vega mark object
+# Given a ggvis mark object and set of scales, output a vega mark object
 #' @S3method as.vega mark
 as.vega.mark <- function(mark) {
   # Keep only the vega-specific fields, then remove the class, drop nulls,
@@ -73,11 +76,11 @@ as.vega.mark <- function(mark) {
   defaults <- default_mark_properties(mark)
   props <- merge_props(defaults, mark$props)
   check_mark_props(mark, names(props))
-  
+
   # HW: It seems less than ideal to have to inspect the data here, but
   # I'm not sure how else we can figure it out.
   split <- is.split_df(isolate(mark$pipeline()))
-  
+
   if (split) {
     list(
       type = "group",
@@ -98,13 +101,13 @@ as.vega.mark <- function(mark) {
       from = list(data = mark$pipeline_id)
     )
   }
-  
+
 }
 
-#' @S3method as.vega gigvis_props
-as.vega.gigvis_props <- function(x, default_scales = NULL) {
+#' @S3method as.vega ggvis_props
+as.vega.ggvis_props <- function(x, default_scales = NULL) {
   if (empty(x)) return(NULL)
-  
+
   default_scales <- default_scales %||% prop_to_scale(names(x))
   Map(prop_vega, x, default_scales)
 }
@@ -116,7 +119,7 @@ as.vega.vega_axis <- function(x) {
   } else {
     x$properties <- lapply(x$properties, as.vega)
   }
-  
+
   unclass(x)
 }
 #' @S3method as.vega vega_legend
@@ -133,7 +136,7 @@ as.vega.data.frame <- function(x, name, ...) {
 #' @S3method as.vega split_df
 as.vega.split_df <- function(x, name, ...) {
   data <- lapply(x, function(x) list(children = df_to_json(x)))
-  
+
   list(
     list(
       name = paste0(name, "_tree"),
@@ -147,4 +150,3 @@ as.vega.split_df <- function(x, name, ...) {
     )
   )
 }
-

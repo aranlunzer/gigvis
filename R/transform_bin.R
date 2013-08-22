@@ -50,18 +50,20 @@ transform_bin <- function(binwidth = guess(), origin = NULL, right = TRUE) {
 
 #' @rdname transform_bin
 #' @export
+#' @param props a \code{\link{props}} object describing a property mapping
+#' @param ... other arguments passed on to the underlying transform function
 branch_histogram <- function(props = NULL, ...) {
   if (is.null(props)) props <- props()
 
   default <- props(
-    x ~ xmin__, 
-    x2 ~ xmax__, 
+    x ~ xmin__,
+    x2 ~ xmax__,
     y ~ count__,
-    y2 = constant(0, scale = TRUE),
+    y2 ~ 0
     provenance = variable(quote(indices__), scale = FALSE)
   )
   props <- merge_props(default, props)
-  
+
   node(
     data = transform_bin(...),
     mark_rect(props)
@@ -70,15 +72,16 @@ branch_histogram <- function(props = NULL, ...) {
 
 #' @rdname transform_bin
 #' @export
+#' @inheritParams branch_histogram
 branch_freqpoly <- function(props = NULL, ...) {
   if (is.null(props)) props <- props()
-  
+
   default <- props(
-    x ~ x, 
+    x ~ x,
     y ~ count__
   )
   props <- merge_props(default, props)
-  
+
   node(
     data = transform_bin(...),
     mark_line(props)
@@ -102,7 +105,7 @@ compute.transform_bin <- function(x, props, data) {
 
   output <- bin(data, x_var = props$x,
     binwidth = x$binwidth, origin = x$origin, right = x$right)
-  
+
   preserve_constants(data, output)
 }
 
@@ -110,7 +113,8 @@ bin <- function(data, ...) UseMethod("bin")
 
 #' @S3method bin split_df
 bin.split_df <- function(x, x_var, ...) {
-  split_df_apply(x, bin, x_var = x_var, ...)
+  x[] <- lapply(x, bin, x_var = x_var, ...)
+  x
 }
 
 #' @S3method bin data.frame
@@ -129,6 +133,7 @@ bin.numeric <- function(data, weight = NULL, binwidth = 1, origin = NULL, right 
   if (length(na.omit(data)) == 0)  return(data.frame())
   
   if (is.null(weight))  weight <- rep(1, length(data))
+
   weight[is.na(weight)] <- 0
   
   if (is.null(origin)) {

@@ -1,10 +1,15 @@
-# This is used similarly to view_static, but view_dynamic can take functions
-# or (reactive expressions) as data instead of names in an environment.
-
+#' Generate a dynamic shiny app with the embedded ggvis graph
+#'
+#' @inheritParams view_static
+#' @param port the port on which to start the shiny app
+#' @keywords internal
+#' @export
+#' @importFrom RJSONIO toJSON
+#' @importFrom whisker whisker.render
 #' @importFrom shiny pageWithSidebar headerPanel sidebarPanel uiOutput
 #'   mainPanel tags observe runApp stopApp renderUI
-view_dynamic <- function(gv, envir = parent.frame(), controls = NULL,
-                         renderer = "canvas", launch = TRUE, port = 8228) {
+#' @keywords internal
+view_dynamic <- function(gv, renderer = "canvas", launch = TRUE, port = 8228) {
 
   if (!(renderer %in% c("canvas", "svg")))
     stop("renderer must be 'canvas' or 'svg'")
@@ -13,25 +18,26 @@ view_dynamic <- function(gv, envir = parent.frame(), controls = NULL,
 
   # Make our resources available
   ui <- pageWithSidebar(
-    headerPanel("Gigvis plot"),
+    headerPanel("Ggvis plot"),
     sidebarPanel(
-      uiOutput("gigvis_ui")
-    ),
-    mainPanel(
-      gigvisOutput(plot_id),
+      uiOutput("ggvis_ui"),
 
       # Add an actionButton that quits the app and closes the browser window
       tags$button(id="quit", type="button", class="btn action-button",
         onclick = "window.close()", "Quit")
+    ),
+    mainPanel(
+      ggvis_output(plot_id)
     )
   )
 
   server <- function(input, output, session) {
+    r_gv <- reactive(gv)
     # Set up observers for the spec and the data
-    observeGigvis(gv, plot_id, session, renderer)
+    observe_ggvis(r_gv, plot_id, session, renderer)
 
     # User interface elements (in the sidebar)
-    output$gigvis_ui <- renderControls(gv)
+    output$ggvis_ui <- renderControls(r_gv, session)
 
     # (ael) allow supply of custom observer of changes in input
     if (!is.null(gv$customObserver)) gv$customObserver(input);

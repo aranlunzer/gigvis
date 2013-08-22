@@ -1,6 +1,6 @@
-Package: gigvis
+Package: ggvis
 Title: Interactive grammar of graphics
-Description: (ael updated for Lively) gigivs implemented a interactive grammar of graphics, taking the
+Description: gigivs implements a interactive grammar of graphics, taking the
     best parts of ggplot2, combining them with shiny's reactive framework and
     drawing web graphics using vega.
 Version: 0.0.99
@@ -13,17 +13,17 @@ Imports:
     whisker,
     RJSONIO,
     digest,
-    shiny (>= 0.5.0)
+    shiny (>= 0.6.0.99)
 Suggests:
-    testthat (>= 0.7.1.99)
+    testthat (>= 0.7.1.99),
+    knitr
+VignetteBuilder: knitr
 License: GPL-2
 Collate:
-    'axis.R'
     'connect.R'
     'df_to_json.R'
     'full_seq.R'
-    'gigvis.R'
-    'gigvis_render.R'
+    'ggvis.R'
     'guess.R'
     'lively_gigvis.R'
     'mark.R'
@@ -33,8 +33,6 @@ Collate:
     'pipeline.R'
     'prop.R'
     'prop_band.R'
-    'prop_constant.R'
-    'prop_variable.R'
     'props.R'
     'range.R'
     'scale.R'
@@ -55,13 +53,16 @@ Collate:
     'utils.R'
     'utils_reactive.R'
     'vega.R'
-    'legend.R'
     'datasource.R'
     'last_vis.R'
-    'delayed_reactive.R'
-    'input_slider.R'
-    'input_select.R'
     'is_dynamic.R'
     'controls.R'
     'view_dynamic.R'
     'view_static.R'
+    'zzz.r'
+    'flatten.R'
+    'guide_axis.R'
+    'guide_legend.R'
+    'inputs.R'
+    'input.R'
+    'utils_names.R'
