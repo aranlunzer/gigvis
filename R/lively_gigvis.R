@@ -2,9 +2,8 @@
 
 #' @importFrom shiny pageWithSidebar headerPanel sidebarPanel uiOutput
 #'   mainPanel tags observe runApp stopApp renderUI
-view_lively <- function(gv, customObserver = NULL, envir = parent.frame(), controls = NULL,
+view_lively <- function(r_gv, customObserver = NULL, envir = parent.frame(), controls = NULL,
                          renderer = "svg", launch = TRUE) {
-
   if (!(renderer %in% c("canvas", "svg")))
     stop("renderer must be 'canvas' or 'svg'")
 
@@ -12,12 +11,12 @@ view_lively <- function(gv, customObserver = NULL, envir = parent.frame(), contr
 
   # Make our resources available
   ui <- pageWithSidebar(
-    headerPanel("Gigvis plot"),
+    headerPanel("Ggvis plot"),
     sidebarPanel(
-      uiOutput("gigvis_ui")
+      uiOutput("ggvis_ui")
     ),
     mainPanel(
-      gigvisOutput(plot_id),
+      ggvis_output(plot_id),
 
       # Add an actionButton that quits the app and closes the browser window
       tags$button(id="quit", type="button", class="btn action-button",
@@ -27,10 +26,10 @@ view_lively <- function(gv, customObserver = NULL, envir = parent.frame(), contr
 
   server <- function(input, output, session) {
     # Set up observers for the spec and the data
-    observeGigvis_lively(gv, plot_id, session, renderer)
+    observe_ggvis_lively(r_gv, plot_id, session, renderer)
 
     # User interface elements (in the sidebar)
-    output$gigvis_ui <- renderControls(gv)
+    output$ggvis_ui <- renderControls(r_gv)
 
     # (ael) allow supply of custom observer of changes in input
     if (!is.null(customObserver)) customObserver(input);
@@ -46,30 +45,15 @@ view_lively <- function(gv, customObserver = NULL, envir = parent.frame(), contr
 }
 
 # ael: this is only called once
-# we now expect the whole gv to be reactive
-observeGigvis_lively <- function(gv, id, session, renderer = "svg", ...) {
+observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
+  if (!is.reactive(r_gv)) {
+    stop("observe_ggvis requires a reactive expression that returns a ggvis object",
+         call. = FALSE)
+  }
+  
   obs <- observe({
-    spec <- as.vega(gv(), session = session, dynamic = FALSE, ...)
-
-#     session$sendCustomMessage("gigvis_forget_plot", list(plot = id))
-#     
-#     data_table <- attr(spec, "data_table")
-#     for (name in ls(data_table, all.names = TRUE)) {
-#       # The datasets list contains named objects. The names are synthetic IDs
-#       # that are present in the vega spec. The values can be a variety of things,
-#       # see the if/else clauses below.
-# 
-#       data_name <- name
-#         
-#       data_reactive <- get(data_name, data_table)
-#       data <- data_reactive()
-# 
-#       session$sendCustomMessage("gigvis_data", list(
-#             plot = id,
-#             name = data_name,
-#             value = as.vega(data, data_name)
-#         ))
-#       }
+    # print("tock")
+    spec <- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
 
     session$sendCustomMessage("gigvis_vega_spec_with_data", list(
       plotId = id,
@@ -83,53 +67,3 @@ observeGigvis_lively <- function(gv, id, session, renderer = "svg", ...) {
     obs$suspend()
   })
 }
-
-  # old calls
-  # observe_spec_lively(spec, id, session, renderer)
-  # observe_data_lively(attr(spec, "data_table"), id, session)
-
-# Create an observer for the vega spec
-# NOT USED
-observe_spec_lively <- function(spec, id, session, renderer) {
-  obs <- observe({
-    session$sendCustomMessage("gigvis_vega_spec", list(
-      plotId = id,
-      spec = spec,
-      renderer = renderer
-    ))
-  })
-  session$onSessionEnded(function() {
-    obs$suspend()
-  })
-}
-
-# Create observers for the data objects
-# NOT USED
-observe_data_lively <- function(data_table, id, session) {
-  # Send each of the data objects
-  for (name in ls(data_table, all.names = TRUE)) {
-    # The datasets list contains named objects. The names are synthetic IDs
-    # that are present in the vega spec. The values can be a variety of things,
-    # see the if/else clauses below.
-    local({
-      # Have to do everything in a local so that these variables are not shared
-      # between the different iterations
-      data_name <- name
-      
-      obs <- observe({
-        data_reactive <- get(data_name, data_table)
-        data <- data_reactive()
-        
-        session$sendCustomMessage("gigvis_data", list(
-          plot = id,
-          name = data_name,
-          value = as.vega(data, data_name)
-        ))
-      })
-      session$onSessionEnded(function() {
-        obs$suspend()
-      })
-    })
-  }
-}
-

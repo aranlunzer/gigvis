@@ -59,8 +59,8 @@ branch_histogram <- function(props = NULL, ...) {
     x ~ xmin__,
     x2 ~ xmax__,
     y ~ count__,
-    y2 ~ 0
-    provenance = variable(quote(indices__), scale = FALSE)
+    y2 ~ 0,
+    provenance = prop(quote(indices__), scale = FALSE)
   )
   props <- merge_props(default, props)
 

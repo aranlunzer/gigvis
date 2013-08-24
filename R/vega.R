@@ -97,7 +97,7 @@ as.vega.mark <- function(mark) {
     list(
       type = mark$type,
       properties = list(update = as.vega(props),
-                        highlight = as.vega(props(fill=constant("red")))),
+                        highlight = as.vega(props(fill="red"))),
       from = list(data = mark$pipeline_id)
     )
   }

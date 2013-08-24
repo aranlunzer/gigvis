@@ -2,7 +2,6 @@
 # domain values set.
 # ael: changed to expect the elements in data_table to be static, not reactive
 find_scales <- function(x, nodes, data_table) {
-
   scales <- x$scales
 
   # Loop through each node, recording the usage of each scale
@@ -26,7 +25,8 @@ find_scales <- function(x, nodes, data_table) {
   }
 
   # Add in scales not already specified in spec
-  needed <- setdiff(names(scale_types), names(scales))
+  #needed <- setdiff(names(scale_types), names(scales))
+  needed <- setdiff(names(scale_types), lapply(scales, function(s) s$name))
   for (scale_n in needed) {
     type <- scale_types[[scale_n]][[1]]
     scales[[scale_n]] <- default_scale(scale_n, type)

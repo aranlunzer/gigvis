@@ -105,10 +105,13 @@ print.ggvis <- function(x, dynamic = NA, ...) {
 
   if (is.na(dynamic)) dynamic <- is.dynamic(x)
 
+  # ael added renderer handling, for now just on dynamic
   if (dynamic) {
-    view_dynamic(x, ...)
+    if (!is.null(x$renderer)) {
+      view_dynamic(x, renderer = x$renderer)
+    } else { view_dynamic(x) }
   } else {
-    view_static(x, ...)
+    view_static(x)
   }
 }
 
