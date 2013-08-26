@@ -24,22 +24,35 @@ as.vega.ggvis <- function(x, width = 600, height = 400, padding = NULL,
 
   nodes <- flatten(x, session = session)
   data_table <- extract_data(nodes)
-  data_table <- active_props(data_table, nodes)
 
-  data_names <- ls(data_table, all.names = TRUE)
+  # ael - changed logic here, so when not dynamic we're not creating reactives even ephemerally
   if (dynamic) {
+    data_table <- active_props(data_table, nodes)
+    data_names <- ls(data_table, all.names = TRUE)
     datasets <- lapply(data_names, function(name) {
       # Don't provide data now, just the name
       list(name = name)
     })
+    # ael: find_scales now expects static rather than reactive elements.
+    # There must be a more direct way of providing this, but...
+    static_data_table <- list()
+    for (node in nodes) {
+      id <- node$pipeline_id
+      static_data_table[[id]] <- isolate(data_table[[id]]())
+    }
+    scales <- find_scales(x, nodes, static_data_table)
   } else {
+    data_table <- static_props(data_table, nodes)
+    data_names <- ls(data_table, all.names = TRUE)
     datasets <- unlist(lapply(data_names, function(name) {
-      data <- isolate(data_table[[name]]())
+      data <- data_table[[name]]
       as.vega(data, name)
     }), recursive = FALSE)
+    scales <- find_scales(x, nodes, data_table)
   }
 
-  scales <- add_default_scales(x, nodes, data_table)
+  #  scales <- add_default_scales(x, nodes, data_table)
+
   axes <- add_default_axes(x$axes, scales)
   legends <- add_default_legends(x$legends, scales)
 
@@ -53,7 +66,7 @@ as.vega.ggvis <- function(x, width = 600, height = 400, padding = NULL,
     axes = lapply(axes, as.vega),
     padding = as.vega(padding)
   )
-
+  
   structure(spec, data_table = data_table)
 }
 
@@ -82,9 +95,11 @@ as.vega.mark <- function(mark) {
       )
     )
   } else {
+    # ael - add vega "highlight" property for use in brushing
     list(
       type = mark$type,
-      properties = list(update = as.vega(props)),
+      properties = list(update = as.vega(props),
+                        highlight = as.vega(props(fill="red"))),
       from = list(data = mark$pipeline_id)
     )
   }
@@ -137,4 +152,3 @@ as.vega.split_df <- function(x, name, ...) {
     )
   )
 }
-

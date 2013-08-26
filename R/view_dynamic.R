@@ -39,6 +39,9 @@ view_dynamic <- function(gv, renderer = "canvas", launch = TRUE, port = 8228) {
     # User interface elements (in the sidebar)
     output$ggvis_ui <- renderControls(r_gv, session)
 
+    # (ael) allow supply of custom observer of changes in input
+    if (!is.null(gv$customObserver)) gv$customObserver(input);
+
     # Stop the app when the quit button is clicked
     observe({
       if (is.null(input$quit)) return()
