@@ -2,11 +2,11 @@
 
 library(shiny)
 library(ggplot2)
-
+library(RJSONIO)
 #options(shiny.reactlog=T)
 
 values <- reactiveValues(trigger = 0, binwidth=0.05, binoffset=0, check1="false", check2="false", argList = NULL)
-workingData <- diamonds[sample(nrow(diamonds), 1000), ]
+workingData <- diamonds[sample(nrow(diamonds), 5000), ]
 observer = function(input) {
   observe({
     if (!is.null(input$trigger)) {
@@ -54,7 +54,7 @@ values$argList <- reactive({
     mark_symbol(props(y~price, fill="blue", size=8)),
     dscale("x", "numeric", domain = c(0, 3), range = "width"),
     guide_axis("y"),
-    dscale("y", "numeric", domain = c(0, 200), range = "height", name="yhist"),
+    dscale("y", "numeric", domain = c(0, 200), range = "height", clamp=TRUE, name="yhist"),
     guide_axis("y", scale="yhist", orient="right", grid=FALSE)
   )
   ind <- length(ls)+1

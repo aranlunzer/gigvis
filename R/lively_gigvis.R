@@ -52,9 +52,8 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
   }
   
   obs <- observe({
-    # print("tock")
     spec <- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
-
+    
     session$sendCustomMessage("gigvis_vega_spec_with_data", list(
       plotId = id,
       spec = spec,
