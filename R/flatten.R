@@ -46,65 +46,34 @@ extract_data <- function(nodes) {
   data_table
 }
 
-# ael - separated out the logic for extracting data from a spec, so we don't 
-# have to create reactives we don't want.
-# There could *very* well be a more direct way of doing this.
-# (ael added)
-extract_props <- function(nodes) {
-  # extract correlated lists of pipeline ids and props
-  pipeline_id <- vapply(nodes, function(x) x$pipeline_id, character(1))
-
-  props <- lapply(nodes, function(x) x$props)
-  # set up as a list of props keyed by id
-  props_by_id <- split(props, pipeline_id)
-  # and then flatten the props
-  props_by_id <- lapply(props_by_id, unlist, recursive = FALSE)
-  # do something involving replacing property keys (such as x, y) with the 
-  # properties they refer to (wt, mpg etc)
-  uprops_by_id <- lapply(props_by_id, function(props) {
-    names <- vapply(props, prop_name, character(1))
-    ok <- !duplicated(names) & names != ""
-
-    setNames(props[ok], names[ok])
-  })
-  uprops_by_id
-}
-
 # Create a new reactive dataset containing only the data actually used
 # by properties.
 active_props <- function(data, nodes) {
-  uprops_by_id <- extract_props(nodes)
-
+  # Collect all props for given data
+  pipeline_id <- vapply(nodes, function(x) x$pipeline_id, character(1))
+  props <- lapply(nodes, function(x) x$props)
+  
+  props_by_id <- split(props, pipeline_id)
+  props_by_id <- lapply(props_by_id, unlist, recursive = FALSE)
+  
+  uprops_by_id <- lapply(props_by_id, function(props) {
+    names <- vapply(props, prop_name, character(1))
+    ok <- !duplicated(names) & names != ""
+    
+    setNames(props[ok], names[ok])
+  })
+  
   reactive_prop <- function(props, data) {
     force(props)
     force(data)
     reactive(apply_props(data(), props))
   }
-
+  
   data_out <- new.env(parent = emptyenv())
   for (data_n in names(uprops_by_id)) {
     data_out[[data_n]] <- reactive_prop(uprops_by_id[[data_n]], data[[data_n]])
   }
-
-  data_out
-}
-
-# (ael added) Return a data table suitable for use in creating a spec with the 
-# data embedded.
-static_props <- function(data, nodes) {
-  uprops_by_id <- extract_props(nodes)
   
-  data_out <- new.env(parent = emptyenv())
-
-  static_prop <- function(props, data) {
-    force(props)
-    force(data)
-    apply_props(isolate(data()), props)
-  }
-
-  for (data_n in names(uprops_by_id)) {
-    data_out[[data_n]] <- static_prop(uprops_by_id[[data_n]], data[[data_n]])
-  }
   data_out
 }
 

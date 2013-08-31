@@ -24,35 +24,22 @@ as.vega.ggvis <- function(x, width = 600, height = 400, padding = NULL,
 
   nodes <- flatten(x, session = session)
   data_table <- extract_data(nodes)
-
-  # ael - changed logic here, so when not dynamic we're not creating reactives even ephemerally
+  data_table <- active_props(data_table, nodes)
+  
+  data_names <- ls(data_table, all.names = TRUE)
   if (dynamic) {
-    data_table <- active_props(data_table, nodes)
-    data_names <- ls(data_table, all.names = TRUE)
     datasets <- lapply(data_names, function(name) {
       # Don't provide data now, just the name
       list(name = name)
     })
-    # ael: find_scales now expects static rather than reactive elements.
-    # There must be a more direct way of providing this, but...
-    static_data_table <- list()
-    for (node in nodes) {
-      id <- node$pipeline_id
-      static_data_table[[id]] <- isolate(data_table[[id]]())
-    }
-    scales <- find_scales(x, nodes, static_data_table)
   } else {
-    data_table <- static_props(data_table, nodes)
-    data_names <- ls(data_table, all.names = TRUE)
     datasets <- unlist(lapply(data_names, function(name) {
-      data <- data_table[[name]]
+      data <- isolate(data_table[[name]]())
       as.vega(data, name)
     }), recursive = FALSE)
-    scales <- find_scales(x, nodes, data_table)
   }
-
-  #  scales <- add_default_scales(x, nodes, data_table)
-
+  
+  scales <- add_default_scales(x, nodes, data_table)
   axes <- add_default_axes(x$axes, scales)
   legends <- add_default_legends(x$legends, scales)
 
@@ -96,14 +83,23 @@ as.vega.mark <- function(mark) {
     )
   } else {
     # ael - add vega "highlight" property for use in brushing
+    # and a "gvParms" property to "from" part giving overall provenance information
+    markprops <- list()
+    markprops[["update"]] <- as.vega(props)   # standard
+    if (mark$type == "symbol" || mark$type == "rect") {
+      markprops[["highlight"]] <- as.vega(props(fill="red"))
+    }
+    
+    froms <- list()
+    froms[["data"]] <- mark$pipeline_id   # standard
+    if (exists("gvParms")) froms[["gvParms"]] <- toJSON(isolate(reactiveValuesToList(gvParms)),collapse="")
+    
     list(
       type = mark$type,
-      properties = list(update = as.vega(props),
-                        highlight = as.vega(props(fill="red"))),
-      from = list(data = mark$pipeline_id)
+      properties = markprops,
+      from = froms
     )
   }
-
 }
 
 #' @S3method as.vega ggvis_props

@@ -35,11 +35,12 @@ default_mark_properties.default <- function(mark) {
 
 #' @rdname marks
 #' @export
-mark_symbol <- function(props = NULL, data = NULL) mark("symbol", props = props, data = data)
+mark_symbol <- function(props = NULL, data = NULL)
+  mark("symbol", props = merge_props(props, props(provenance=prop(quote(rownumber), scale=FALSE))), data = data)
 #' @S3method valid_mark_properties mark_symbol
 valid_mark_properties.mark_symbol <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "size", "shape", "provenance")
+    "strokeOpacity", "size", "shape", "provenance", "dragx", "dragy")
 }
 #' @S3method default_mark_properties mark_symbol
 default_mark_properties.mark_symbol <- function(mark) {

@@ -9,7 +9,7 @@
 #' @importFrom shiny pageWithSidebar headerPanel sidebarPanel uiOutput
 #'   mainPanel tags observe runApp stopApp renderUI
 #' @keywords internal
-view_dynamic <- function(gv, renderer = "canvas", launch = TRUE, port = 8228) {
+view_dynamic <- function(gv, renderer = "svg", launch = TRUE, port = 8228) {
 
   if (!(renderer %in% c("canvas", "svg")))
     stop("renderer must be 'canvas' or 'svg'")

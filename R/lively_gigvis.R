@@ -34,6 +34,24 @@ view_lively <- function(r_gv, customObserver = NULL, envir = parent.frame(), con
     # (ael) allow supply of custom observer of changes in input
     if (!is.null(customObserver)) customObserver(input);
 
+    observe({
+      if (!is.null(input$trigger)) {
+        msg <- fromJSON(input$trigger);
+        #print(msg)
+        if (msg[["message"]] == "set") {
+          cmds <- msg[["args"]]
+          for (c in cmds) {
+            # dataset,column,row,value
+            # becomes   dataset[row,"column"]<-value
+            cmd <- paste0(c[["dataset"]],"[",c[["row"]],",'",c[["column"]],"']<-",c[["value"]])
+            # print(cmd)
+            eval(parse(text=cmd),envir=.GlobalEnv)
+          }
+          gvReactives$refresh <<- isolate(gvReactives$refresh)+1
+        }
+      }
+    })
+
     # Stop the app when the quit button is clicked
     observe({
       if (is.null(input$quit)) return()

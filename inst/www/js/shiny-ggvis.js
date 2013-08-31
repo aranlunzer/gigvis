@@ -101,7 +101,26 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
     // instead of ggvisInit(plotId);
     chart.update();
 
-    relatedItems = function(itemNums) {
+    // ael: abandoned attempt to use d3 drag behaviour
+/*
+    var mydrag = d3.behavior.drag()
+        .on("drag", function(item) {
+          var rowString = item.provenance;
+          var scaledX = item.mark.group.scales["x"].invert(d3.event.x).toFixed(2);
+          var scaledY = item.mark.group.scales["y"].invert(d3.event.y).toFixed(2);
+          window.Shiny.onInputChange("trigger", "drag:"+rowString+":"+String(scaledX)+":"+String(scaledY)+":"+String(d3.event.x)+":"+String(d3.event.y) )
+          })
+    
+    chart.model().scene().items[0].items.forEach(function(series) {
+      series.items.forEach(function(item) {
+        if (item.drag) {
+          d3.select(item._svg).call(mydrag);
+        }
+      })
+    })
+*/
+
+    relatedItems = function(itemIDs) {
       // ael: return a collection of vega-level items
       //debugger;
       var matches = []
@@ -109,8 +128,8 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
       d3.select(selector).select("svg.marks").selectAll("rect")[0].forEach(function(domElem) {
         var item = domElem.__data__
         if (item && item.provenance) {
-          splitProvenance(item.provenance).some(function(thisNum) {
-            if (itemNums.indexOf(thisNum) >= 0) {
+          (item.provenance.split(",")).some(function(thisID) {
+            if (itemIDs.indexOf(thisID) >= 0) {
               matches.push(item);
               return true;
             } else { return false; }
@@ -120,8 +139,8 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
       // and a clumsy way of finding dots
       d3.select(selector).select("svg.marks").selectAll("path")[0].forEach(function(domElem) {
         var item = domElem.__data__
-        if (item && item.key !== undefined) {
-          if (itemNums.indexOf(item.key+1) >= 0) {
+        if (item && item.provenance) {
+          if (itemIDs.indexOf(item.provenance) >= 0) {
               matches.push(item);
           }
         }
@@ -129,33 +148,70 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
       
       return matches;
     }
-    
-    splitProvenance = function(provString) {
-      var nums = [];
-      provString.split(",").forEach(function(nstr) { nums.push(Number(nstr)) });
-      return nums;
-    }
 
     if (true) { // (message.interactivitySpec) {
       chart.on("mouseover", function(event, item) {
-        // console.log(item.provenance || item.key);  // NB item.key is zero-based
-        if (item._svg.nodeName == "path") {
-          chart.update({ props: "highlight", items: relatedItems([item.key+1]) })
-          // window.Shiny.onInputChange("trigger", "in:"+(item.key+1))
-        } else if (item._svg.nodeName == "rect") {
-          var itemNums = splitProvenance(item.provenance);
-          chart.update({ props: "highlight", items: relatedItems(itemNums) })
-          // console.log(item.provenance);
+        if (item.provenance) {
+          chart.update({ props: "highlight", items: relatedItems(item.provenance.split(",")) })
         }
-        })
+      })
       chart.on("mouseout", function(event, item) {
-        /*
-        if (item._svg.nodeName == "path") {
-          window.Shiny.onInputChange("trigger", "out:"+(item.key+1))
-        */
         // chart.update({ props: "update", duration: 1000, ease: "linear" })
         chart.update()
       })
+      chart.on("mousedown", function (evt, item) {
+        // dragx and dragy are comma-separated strings of the form
+        //    scaleName,datasetName,columnName  (e.g. x,mtcars,wt)
+        // we signal to R with structured messages (JSON encoded) such as
+        //    message: set
+        //    args:
+        //      0 -> { dataset: "mtcars", column: "wt", row: 6, value: 3.5 }
+        //      1 -> { dataset: "mtcars", column: "mpg", row: 6, value: 15 }
+        if (item.dragx || item.dragy) {        // this is an item the user can drag
+          var handle = lively.morphic.Morph.makeCircle(pt(0,0), 8, 2, Color.gray, Color.black);
+          handle.itemRow = Number(item.provenance.substr(0,item.provenance.indexOf("/")));
+          toList = function(dragSpec) {
+            s = dragSpec.split(",");
+            return { scale: s[0], dataset: s[1], column: s[2] }
+          }
+          
+          if (item.dragx) handle.xSpec = toList(item.dragx)
+          if (item.dragy) handle.ySpec = toList(item.dragy)
+
+          handle.addScript(function onDrag(evt) {
+            var now = new Date().getTime();
+            if (this.lastTime && now - this.lastTime < 200) return;
+            this.lastTime = now;
+
+            var targetChart = $(".ggvis-output#plot1").data("ggvisChart");
+            var rect = $(".ggvis-output#plot1")[0].getBoundingClientRect();
+            var evtPos = evt.getPosition() // this.globalBounds().center();
+            var padding = targetChart.padding();
+            $world.cachedBounds = null;
+            var worldRect = $world.getBounds()
+            var chartTop = rect.top + padding.top - worldRect.top();
+            var chartLeft = rect.left + padding.left - worldRect.left();
+            var chartGroup = targetChart.model().scene().items[0];
+            var args = [];
+            var msg = { message: "set", args: args };
+            if (this.xSpec) {
+              var xVal = chartGroup.scales[this.xSpec.scale].invert(evtPos.x - chartLeft).toFixed(2);
+              args.push( { dataset: this.xSpec.dataset, column: this.xSpec.column, row: this.itemRow, value: xVal } );
+            }
+            if (this.ySpec) {
+              var yVal = chartGroup.scales[this.ySpec.scale].invert(evtPos.y - chartTop).toFixed(2);
+              args.push( { dataset: this.ySpec.dataset, column: this.ySpec.column, row: this.itemRow, value: yVal } );
+            }
+            window.Shiny.onInputChange("trigger", JSON.stringify(msg))
+            //console.log(msg)
+          }).bind(handle);
+          handle.addScript(function onDropOn(evt) { this.remove() }).bind(handle)
+          //evt.hand.getPosition()
+          evt.hand.grabMorph(handle, evt);
+          handle.setPosition(pt(-4,-4));
+          $world.draggedMorph = handle;
+        }
+      }.bind(chart))
     }
   });
 });

@@ -80,6 +80,7 @@ is.prop <- function(x) inherits(x, "prop")
 # Given a property and a dataset, get the value of the property.
 prop_value <- function(x, data) {
   if (x$type == "constant") return(rep(x$value, nrow(data)))
+  if (x$value == "rownumber") return(paste0(as.character(seq(1,nrow(data))),"/",as.character(nrow(data)))) # ael added
 
   # Get the expression to evaluate
   if (x$type == "reactive") {
@@ -218,7 +219,7 @@ prop_type.data.frame <- function(data, prop, processed = FALSE) {
   if (processed) {
     value <- data[[prop_name(prop)]]
   } else {
-    value <- prop_value(prop, data, processed)
+    value <- prop_value(prop, data)
   }
   
   vector_type(value)

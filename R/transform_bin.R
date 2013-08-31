@@ -96,7 +96,7 @@ format.transform_bin <- function(x, ...) {
 #' @S3method compute transform_bin
 compute.transform_bin <- function(x, props, data) {
   check_prop(x, props, data, "x", "numeric")
-
+  
   if (is.guess(x$binwidth)) {
     x$binwidth <- diff(prop_range(data, props$x)) / 30
     message("Guess: transform_bin(binwidth = ", format(x$binwidth, digits = 3),
@@ -129,7 +129,7 @@ bin.numeric <- function(data, weight = NULL, binwidth = 1, origin = NULL, right 
   stopifnot(is.numeric(binwidth) && length(binwidth) == 1)
   stopifnot(is.null(origin) || (is.numeric(origin) && length(origin) == 1))
   stopifnot(is.flag(right))
-  
+
   if (length(na.omit(data)) == 0)  return(data.frame())
   
   if (is.null(weight))  weight <- rep(1, length(data))
@@ -162,9 +162,10 @@ bin.numeric <- function(data, weight = NULL, binwidth = 1, origin = NULL, right 
   count[is.na(count)] <- 0
   
   indices <- 0
+  sizeTag <- paste0("/",length(data))
   for (i in 1:length(levels(bins))){
     if(length(which(bins==levels(bins)[i])) != 0){
-      indices[i] <-  paste0(which(bins==levels(bins)[i]), collapse=",")
+      indices[i] <-  paste0(which(bins==levels(bins)[i]), sizeTag, collapse=",")
     }
     else {
       indices[i] <- "NA"

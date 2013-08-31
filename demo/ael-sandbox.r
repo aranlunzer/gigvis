@@ -1,12 +1,11 @@
-# diamonds data (sample 1000), scatterplot + histogram/frequency plot
+
+# mtcars data, scatter plot + histogram/freqpoly (same scale) + binoffset samples + smooth
 
 library(shiny)
-library(ggplot2)
-library(RJSONIO)
 #options(shiny.reactlog=T)
 
-values <- reactiveValues(trigger = 0, binwidth=0.05, binoffset=0, check1="false", check2="false", argList = NULL)
-workingData <- diamonds[sample(nrow(diamonds), 5000), ]
+values <- reactiveValues(trigger = 0, binwidth=0.5, binoffset=0, check1="false", check2="false", argList = NULL)
+carsWorking <- mtcars
 observer = function(input) {
   observe({
     if (!is.null(input$trigger)) {
@@ -35,7 +34,7 @@ observer = function(input) {
   observe({
     if (!is.null(input$bw)) {
       w <- round(as.double(input$bw), digits=1)
-      if (w>0) values$binwidth <- w*0.1
+      if (w>0) values$binwidth <- w
     }
   })
   
@@ -46,35 +45,31 @@ observer = function(input) {
   })
   
 }
-# dataReactive <- reactive({ values$trigger; workingData }, label="dataReactive")
+carsReactive <- reactive({ values$trigger; carsWorking }, label="carsReactive")
 values$argList <- reactive({
   ls <- list(
-    quote(workingData),
-    props(x ~ carat),
-    mark_symbol(props(y~price, fill="blue", size=8)),
-    dscale("x", "numeric", domain = c(0, 3), range = "width"),
-    guide_axis("y"),
-    dscale("y", "numeric", domain = c(0, 200), range = "height", clamp=TRUE, name="yhist"),
-    guide_axis("y", scale="yhist", orient="right", grid=FALSE)
+    carsReactive(),
+    props(x ~ wt, y~mpg),
+    mark_symbol(props(y~mpg, fill="blue")),
+    scale_quantitative("x", domain = c(0, 7), range = "width"),
+    branch_smooth(props(stroke = "red", strokeWidth=2))
   )
   ind <- length(ls)+1
   if (values$check1 == "false") {
-    ls[[ind]] = branch_histogram(props(y = prop(quote(count__), scale="yhist"), fill="green", fillOpacity=0.7, strokeWidth=0), binwidth=values$binwidth, origin=values$binwidth*values$binoffset)
+    ls[[ind]] = branch_histogram(props(fill="green", fillOpacity=0.4), binwidth=values$binwidth, origin=values$binwidth*values$binoffset)
   } else {
     if (values$check2 == "false") {
-      ls[[ind]] = branch_freqpoly(props(y = prop(quote(count__), scale="yhist"), stroke="black", strokeWidth=1.5), binwidth=values$binwidth, origin=values$binwidth*values$binoffset)
+      ls[[ind]] = branch_freqpoly(props(stroke="black", strokeWidth=1.5), binwidth=values$binwidth, origin=values$binoffset)
     } else {
       for (step in seq(9, 0, -1)) {
         if (step==0) {
           colour <- "black"
-          so <- 1
-          sw <- 2
+          sw <- 2.5
         } else {
-          colour <- rgb(10,10,10, maxColorValue=24)
-          so <- 0.4
-          sw <- 1
+          colour <- rgb(10,10,10, maxColorValue=20)
+          sw <- 1.5
         }
-        ls[[ind]] = branch_freqpoly(props(y = prop(quote(count__), scale="yhist"), stroke=colour, strokeWidth=sw, strokeOpacity=so), binwidth=values$binwidth, origin=values$binwidth*step*0.1)
+        ls[[ind]] = branch_freqpoly(props(stroke=colour, strokeWidth=sw), binwidth=values$binwidth, origin=values$binwidth*step*0.1)
         ind <- ind + 1
       }
     }

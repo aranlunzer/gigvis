@@ -56,6 +56,8 @@ In this section we'll explore explicitly creating pipelines to help understand
 what is going on behind the scenes. We'll start with a very simple pipeline that just contains a dataset. Sluicing it just returns the data as is. 
 
 ```{r}
+library(ggvis)
+library(shiny)
 df <- data.frame(x = 1:9, grp = rep(1:3, each = 3))
 
 # A dataset has a name, and unique id (hash) in bracket
