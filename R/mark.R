@@ -13,11 +13,18 @@
 #' @export
 #' @keywords internal
 mark <- function(type, props, data = NULL) {
+  markprops <- props
+  if (exists("gvParms")) {
+    # print(toJSON(gvParms,collapse=""))
+    markprops <- merge_props(props, props(sharedProvenance = toJSON(gvParms,collapse="")))
+    # was toJSON(isolate(reactiveValuesToList(gvParms)),collapse="")
+    # but gvParms is currently not reactive
+  } 
   m <- structure(
     compact(list(
       type = type,
       data = as.pipeline(data),
-      props = props
+      props = markprops
     )),
     class = c(paste0("mark_", type), "mark", "ggvis_node")
   )

@@ -82,20 +82,29 @@ as.vega.mark <- function(mark) {
       )
     )
   } else {
-    # ael - add vega "highlight" property for use in brushing
-    # and a "gvParms" property to "from" part giving overall provenance information
+    # ael - no attempt to deal with split dfs for now.
+    # add vega "highlight" property for use in brushing.
+    # if there is a sharedProvenance property, don't push it through to
+    # the items but store it in the mark's "from" part.
     markprops <- list()
-    markprops[["update"]] <- as.vega(props)   # standard
+    vegaprops <- as.vega(props)   # might include sharedProvenance
+    markprops$update <- vegaprops[names(vegaprops)!="sharedProvenance"]
     if (mark$type == "symbol" || mark$type == "rect") {
-      markprops[["highlight"]] <- as.vega(props(fill="red"))
+      markprops$highlight <- as.vega(props(fill="red"))
+      markprops$scenarioHighlight <- as.vega(props(fill="green", fillOpacity=0.3, stroke="black"))
     }
     
     froms <- list()
-    froms[["data"]] <- mark$pipeline_id   # standard
-    if (exists("gvParms")) froms[["gvParms"]] <- toJSON(isolate(reactiveValuesToList(gvParms)),collapse="")
+    froms$data <- mark$pipeline_id   # standard
+    description <- ""
+    if (!is.null(vegaprops$sharedProvenance)) {
+      froms$sharedProvenance <- fromJSON(vegaprops$sharedProvenance$value)
+      description <- fromJSON(vegaprops$sharedProvenance$value)
+    }
     
     list(
       type = mark$type,
+      description = description,
       properties = markprops,
       from = froms
     )

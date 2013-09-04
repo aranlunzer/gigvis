@@ -10,30 +10,24 @@ view_lively <- function(r_gv, customObserver = NULL, envir = parent.frame(), con
   plot_id <- "plot1"
 
   # Make our resources available
-  ui <- pageWithSidebar(
-    headerPanel("Ggvis plot"),
-    sidebarPanel(
-      uiOutput("ggvis_ui")
-    ),
+  ui <- 
     mainPanel(
       ggvis_output(plot_id),
-
-      # Add an actionButton that quits the app and closes the browser window
-      tags$button(id="quit", type="button", class="btn action-button",
-        onclick = "window.close()", "Quit")
+      textOutput("measures1")
     )
-  )
 
   server <- function(input, output, session) {
     # Set up observers for the spec and the data
     observe_ggvis_lively(r_gv, plot_id, session, renderer)
 
     # User interface elements (in the sidebar)
-    output$ggvis_ui <- renderControls(r_gv)
+    # output$ggvis_ui <- renderControls(r_gv)
 
-    # (ael) allow supply of custom observer of changes in input
-    if (!is.null(customObserver)) customObserver(input);
+    # (ael) allow supply of custom observer of changes in input and output
+    if (!is.null(customObserver)) customObserver(input, output)
 
+    output$measures1 <- renderText({gvReactives$measures})
+    
     observe({
       if (!is.null(input$trigger)) {
         msg <- fromJSON(input$trigger);

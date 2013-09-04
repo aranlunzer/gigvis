@@ -93,10 +93,10 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
     // The view's .on method adds to view._handlers a structure { type:, handler:, svg: }
     // and adds the svg part (an svgHandler) to the dom as a listener.
     console.log(spec);  // harmless and useful
-      var selector = ".ggvis-output#" + plotId;
-      var $el = $(selector);
-      var chart = chart({ el: selector, renderer: renderer });
-      $el.data("ggvis-chart", chart);   // a convenient way to access the View object
+    var selector = ".ggvis-output#" + plotId;
+    var $el = $(selector);
+    var chart = chart({ el: selector, renderer: renderer });
+    $el.data("ggvis-chart", chart);   // a convenient way to access the View object
 
     // instead of ggvisInit(plotId);
     chart.update();
@@ -149,15 +149,53 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
       return matches;
     }
 
+    findScenarioMarks = function() {
+          var scenarioMarks = [];
+          var indices = [];
+          d3.selectAll("g").each(function(f) {
+            var el = $(this)[0];
+            var s;
+            try { s = el.firstChild.__data__.mark.def.description.scenario } catch(e) { s = undefined };
+            if (s) {
+              scenarioMarks.push(el);
+              indices.push(s);
+              }
+          });
+          d3.selectAll(scenarioMarks).data(indices);
+          return scenarioMarks;
+    }
+    
+    highlightScenarioMarks = function(marks, touchedScenario) {
+      var highlightItems = [];
+      var otherItems = [];
+      marks.forEach(function(el) {
+        var s = d3.select(el).data();
+        var nodes = el.childNodes;
+        for ( i=0; i<nodes.length; i++ ) {
+          var item = nodes[i].__data__;
+          if (s == touchedScenario) { highlightItems.push( item );
+          } else { otherItems.push( item ) }
+        }
+      })
+      chart.update({ props: "update", items: otherItems });
+      chart.update({ props: "scenarioHighlight", items: highlightItems });
+    }
+
     if (true) { // (message.interactivitySpec) {
       chart.on("mouseover", function(event, item) {
+        if (item.mark && item.mark.def.description && item.mark.def.description.scenario) {
+          var touchedScenario = item.mark.def.description.scenario
+          var scenarioMarks = findScenarioMarks()
+          highlightScenarioMarks(scenarioMarks, touchedScenario)
+          d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
+        }
         if (item.provenance) {
-          chart.update({ props: "highlight", items: relatedItems(item.provenance.split(",")) })
+          // chart.update({ props: "highlight", items: relatedItems(item.provenance.split(",")) })
         }
       })
       chart.on("mouseout", function(event, item) {
         // chart.update({ props: "update", duration: 1000, ease: "linear" })
-        chart.update()
+        highlightScenarioMarks( findScenarioMarks(), 0 )
       })
       chart.on("mousedown", function (evt, item) {
         // dragx and dragy are comma-separated strings of the form
