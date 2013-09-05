@@ -41,7 +41,7 @@ view_lively <- function(r_gv, customObserver = NULL, envir = parent.frame(), con
             # print(cmd)
             eval(parse(text=cmd),envir=.GlobalEnv)
           }
-          gvReactives$refresh <<- isolate(gvReactives$refresh)+1
+          gvReactives$refresh <- isolate(gvReactives$refresh)+1
         }
       }
     })
