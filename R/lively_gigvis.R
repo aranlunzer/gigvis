@@ -30,7 +30,7 @@ view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer =
             # becomes   dataset[row,"column"]<-value
             cmd <- paste0(c[["dataset"]],"[",c[["row"]],",'",c[["column"]],"']<-",c[["value"]])
             # print(cmd)
-            eval(parse(text=cmd),envir=gvTopEnv)
+            eval(parse(text=cmd),envir=globalenv())
           }
           gvReactives$refresh <- isolate(gvReactives$refresh)+1
         }
