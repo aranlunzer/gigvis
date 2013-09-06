@@ -2,14 +2,9 @@
 
 #' @importFrom shiny pageWithSidebar headerPanel sidebarPanel uiOutput
 #'   mainPanel tags observe runApp stopApp renderUI
-view_lively <- function(r_gv, customObserver = NULL, envir = parent.frame(), controls = NULL,
-                         renderer = "svg", launch = TRUE) {
-  if (!(renderer %in% c("canvas", "svg")))
-    stop("renderer must be 'canvas' or 'svg'")
-
+view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer = "svg") {
   plot_id <- "plot1"
 
-  # Make our resources available
   ui <- 
     mainPanel(
       ggvis_output(plot_id),
@@ -17,11 +12,7 @@ view_lively <- function(r_gv, customObserver = NULL, envir = parent.frame(), con
     )
 
   server <- function(input, output, session) {
-    # Set up observers for the spec and the data
     observe_ggvis_lively(r_gv, plot_id, session, renderer)
-
-    # User interface elements (in the sidebar)
-    # output$ggvis_ui <- renderControls(r_gv)
 
     # (ael) allow supply of custom observer of changes in input and output
     if (!is.null(customObserver)) customObserver(input, output)
