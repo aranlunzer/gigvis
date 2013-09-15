@@ -288,7 +288,7 @@ oneTimeInitShinyGgvis = function() {
 };
 
 initShinyGgvis = function() {
-  if (!Global.shinyGgvisInitialized) oneTimeInitShinyGgvis();
+  if (!window.shinyGgvisInitialized) oneTimeInitShinyGgvis();
   refreshShinyGgvis();
 }
 
