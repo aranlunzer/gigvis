@@ -2,7 +2,10 @@
     strict:false, undef:true, unused:true, browser:true, jquery:true, maxerr:50,
     curly:false, multistr:true */
 /*global Shiny, vg*/
-$(function(){ //DOM Ready
+// oneTimeInitShinyGgvis should only be called once for a page, given that initShiny()
+// in shiny.js retains the Shiny object if it's already defined.
+oneTimeInitShinyGgvis = function() {
+  shinyGgvisInitialized = true;
 
   var ggvisOutputBinding = new Shiny.OutputBinding();
   $.extend(ggvisOutputBinding, {
@@ -20,7 +23,6 @@ $(function(){ //DOM Ready
     }
   });
   Shiny.outputBindings.register(ggvisOutputBinding, 'shiny.ggvisOutput');
-
 
   var pendingData = {};
   Shiny.addCustomMessageHandler("ggvis_data", function(message) {
@@ -73,15 +75,15 @@ $(function(){ //DOM Ready
   });
 
 
-// ael added.  a lot of replication of the above, but that should make it easier
-// to track code changes.
-// Receive a vega spec, complete with data, and parse it
-Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
-  var plotId = message.plotId;
-  var spec = message.spec;
-  var renderer = message.renderer || "canvas";  // ael
+  // ael added.  a lot of replication of the above, but that should make it easier
+  // to track code changes.
+  // Receive a vega spec, complete with data, and parse it
+  Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
+    var plotId = message.plotId;
+    var spec = message.spec;
+    var renderer = message.renderer || "canvas";  // ael
 
-  vg.parse.spec(spec, function(chart) {
+    vg.parse.spec(spec, function(chart) {
     // This callback is called from within vg.parse.data, once the data in the spec
     // have been procured.
     // chart is a viewConstructor, already initialised with width, height,
@@ -92,14 +94,14 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
     // and the handler (e.g., vg.svg.Handler) records the view (as ._obj).
     // The view's .on method adds to view._handlers a structure { type:, handler:, svg: }
     // and adds the svg part (an svgHandler) to the dom as a listener.
-    console.log(spec);  // harmless and useful
-    var selector = ".ggvis-output#" + plotId;
-    var $el = $(selector);
-    var chart = chart({ el: selector, renderer: renderer });
-    $el.data("ggvis-chart", chart);   // a convenient way to access the View object
+      console.log(spec);  // harmless and useful
+      var selector = ".ggvis-output#" + plotId;
+      var $el = $(selector);
+      var chart = chart({ el: selector, renderer: renderer });
+      $el.data("ggvis-chart", chart);   // a convenient way to access the View object
 
-    // instead of ggvisInit(plotId);
-    chart.update();
+      // instead of ggvisInit(plotId);
+      chart.update();
 
     // ael: abandoned attempt to use d3 drag behaviour
 /*
@@ -120,36 +122,36 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
     })
 */
 
-    relatedItems = function(itemIDs) {
-      // ael: return a collection of vega-level items
-      //debugger;
-      var matches = []
-      // a clumsy way of finding histogram rectangles
-      d3.select(selector).select("svg.marks").selectAll("rect")[0].forEach(function(domElem) {
-        var item = domElem.__data__
-        if (item && item.provenance) {
-          (item.provenance.split(",")).some(function(thisID) {
-            if (itemIDs.indexOf(thisID) >= 0) {
-              matches.push(item);
-              return true;
-            } else { return false; }
-          })
-        }
-      })
-      // and a clumsy way of finding dots
-      d3.select(selector).select("svg.marks").selectAll("path")[0].forEach(function(domElem) {
-        var item = domElem.__data__
-        if (item && item.provenance) {
-          if (itemIDs.indexOf(item.provenance) >= 0) {
-              matches.push(item);
+      relatedItems = function(itemIDs) {
+        // ael: return a collection of vega-level items
+        //debugger;
+        var matches = []
+        // a clumsy way of finding histogram rectangles
+        d3.select(selector).select("svg.marks").selectAll("rect")[0].forEach(function(domElem) {
+          var item = domElem.__data__
+          if (item && item.provenance) {
+            (item.provenance.split(",")).some(function(thisID) {
+              if (itemIDs.indexOf(thisID) >= 0) {
+                matches.push(item);
+                return true;
+              } else { return false; }
+            })
           }
-        }
-      })
+        })
+        // and a clumsy way of finding dots
+        d3.select(selector).select("svg.marks").selectAll("path")[0].forEach(function(domElem) {
+          var item = domElem.__data__
+          if (item && item.provenance) {
+            if (itemIDs.indexOf(item.provenance) >= 0) {
+                matches.push(item);
+            }
+          }
+        })
       
-      return matches;
-    }
+        return matches;
+      }
 
-    findScenarioMarks = function() {
+      findScenarioMarks = function() {
           var scenarioMarks = [];
           var indices = [];
           d3.selectAll("g").each(function(f) {
@@ -163,25 +165,24 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
           });
           d3.selectAll(scenarioMarks).data(indices);
           return scenarioMarks;
-    }
+      }
     
-    highlightScenarioMarks = function(marks, touchedScenario) {
-      var highlightItems = [];
-      var otherItems = [];
-      marks.forEach(function(el) {
-        var s = d3.select(el).data();
-        var nodes = el.childNodes;
-        for ( i=0; i<nodes.length; i++ ) {
-          var item = nodes[i].__data__;
-          if (s == touchedScenario) { highlightItems.push( item );
-          } else { otherItems.push( item ) }
-        }
-      })
-      chart.update({ props: "update", items: otherItems });
-      chart.update({ props: "scenarioHighlight", items: highlightItems });
-    }
+      highlightScenarioMarks = function(marks, touchedScenario) {
+        var highlightItems = [];
+        var otherItems = [];
+        marks.forEach(function(el) {
+          var s = d3.select(el).data();
+          var nodes = el.childNodes;
+          for ( i=0; i<nodes.length; i++ ) {
+            var item = nodes[i].__data__;
+            if (s == touchedScenario) { highlightItems.push( item );
+            } else { otherItems.push( item ) }
+          }
+        })
+        chart.update({ props: "update", items: otherItems });
+        chart.update({ props: "scenarioHighlight", items: highlightItems });
+      }
 
-    if (true) { // (message.interactivitySpec) {
       chart.on("mouseover", function(event, item) {
         if (item.mark && item.mark.def.description && item.mark.def.description.scenario) {
           var touchedScenario = item.mark.def.description.scenario
@@ -250,9 +251,8 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
           $world.draggedMorph = handle;
         }
       }.bind(chart))
-    }
+    });
   });
-});
 
   // Sets height and width of wrapper div to contain the plot area.
   // This is so that the resize handle will be put in the right spot.
@@ -263,7 +263,6 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
     $el.width($plotarea.width());
     $el.height($plotarea.height());
   }
-
 
   var allPlots = {};
   function ggvisInit(plotId) {
@@ -279,4 +278,20 @@ Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
       updateGgvisDivSize(plotId);
     }
   }
-});
+  
+  refreshShinyGgvis = function() {
+    // The user is throwing away the existing chart(s) and building anew. 
+    // Doesn't seem to be much we can/should do here.
+    pendingData = {};
+    allPlots = {};
+  }
+};
+
+initShinyGgvis = function() {
+  if (!Global.shinyGgvisInitialized) oneTimeInitShinyGgvis();
+  refreshShinyGgvis();
+}
+
+$(function(){ //DOM Ready
+    if (!window.deferredShinyInit) initShinyGgvis();
+  });

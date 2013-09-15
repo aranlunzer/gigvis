@@ -12,6 +12,8 @@ view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer =
     )
 
   server <- function(input, output, session) {
+    options(warn = 1)
+
     observe_ggvis_lively(r_gv, plot_id, session, renderer)
 
     # (ael) allow supply of custom observer of changes in input and output
@@ -29,7 +31,7 @@ view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer =
             # dataset,column,row,value
             # becomes   dataset[row,"column"]<-value
             cmd <- paste0(c[["dataset"]],"[",c[["row"]],",'",c[["column"]],"']<-",c[["value"]])
-            # print(cmd)
+            # write(cmd, file="gvActionLog", append=TRUE)
             eval(parse(text=cmd),envir=globalenv())
           }
           gvReactives$refresh <- isolate(gvReactives$refresh)+1
@@ -44,7 +46,18 @@ view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer =
     })
   }
 
-  runApp(list(ui = ui, server = server))
+  # try 3 times to find an available port, somewhere in the range 8120 to 8149
+  for (try in 1:3) {
+    port = 8119 + sample(30,1)
+    portTest = paste0("lsof -ta -i tcp:", toString(port))
+    testResult = tryCatch(system(portTest, intern=TRUE), warning=function(w) {} )
+    # a NULL result means no-one's using the port
+    if (is.null(testResult)) break
+    message(paste0("failed on port ", toString(port)))
+    if (try == 3) stop("Can't find a free port")
+  }
+  
+  runApp(list(ui = ui, server = server), port=port, launch.browser=FALSE)
 }
 
 # ael: this is only called once
