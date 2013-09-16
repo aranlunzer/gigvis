@@ -2,20 +2,24 @@
 
 #' @importFrom shiny pageWithSidebar headerPanel sidebarPanel uiOutput
 #'   mainPanel tags observe runApp stopApp renderUI
-view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer = "svg") {
-  plot_id <- "plot1"
-
-  ui <- 
-    mainPanel(
-      ggvis_output(plot_id),
-      textOutput("measures1")
-    )
+view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, renderer = "svg") {
+  # build an html page - which Lively will never look at, but a browser can view to help debugging
+  uiList <- list()
+  for (s in 1:length(r_gvSpecs)) {
+    uiList[[s]] <- ggvis_output(paste0("plot", toString(s)))
+  }
+  uiList[[length(uiList)+1]] <- textOutput("measures1")
+  ui <- do.call("mainPanel", uiList)
 
   server <- function(input, output, session) {
     options(warn = 1)
 
-    observe_ggvis_lively(r_gv, plot_id, session, renderer)
-
+    # create an observer for processing and updating each of the gv specs
+    for (s in 1:length(r_gvSpecs)) {
+      plot_id <- paste0("plot", toString(s))
+      observe_ggvis_lively(r_gvSpecs[[s]], plot_id, session, renderer)
+    }
+    
     # (ael) allow supply of custom observer of changes in input and output
     if (!is.null(customObserver)) customObserver(input, output)
 
@@ -39,7 +43,7 @@ view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer =
       }
     })
 
-    # Stop the app when the quit button is clicked
+    # Stop the app when the quit button is clicked (or some code pretends by tweaking input$quit)
     observe({
       if (is.null(input$quit)) return()
       if (input$quit > 0) stopApp()
@@ -60,12 +64,14 @@ view_lively <- function(r_gv, customObserver = NULL, controls = NULL, renderer =
   runApp(list(ui = ui, server = server), port=port, launch.browser=FALSE)
 }
 
-# ael: this is only called once
+# ael: this needs to be called once per ggvis chart
 observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
   if (!is.reactive(r_gv)) {
     stop("observe_ggvis requires a reactive expression that returns a ggvis object",
          call. = FALSE)
   }
+  
+  force(id)
   
   obs <- observe({
     spec <- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
