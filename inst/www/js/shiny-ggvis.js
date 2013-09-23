@@ -97,7 +97,8 @@ oneTimeInitShinyGgvis = function() {
       console.log(spec);  // harmless and useful
       var selector = ".ggvis-output#" + plotId;
       var $el = $(selector);
-      var chart = chart({ el: selector, renderer: renderer });
+      // disable the default hover behaviour
+      var chart = chart({ el: selector, hover: false, renderer: renderer });
       $el.data("ggvis-chart", chart);   // a convenient way to access the View object
 
       // instead of ggvisInit(plotId);
@@ -122,36 +123,37 @@ oneTimeInitShinyGgvis = function() {
     })
 */
 
-      relatedItems = function(itemIDs) {
+      function allCharts() {
+        var charts = [];
+        $(".ggvis-output").each(function(i, el) { charts.push($(el).data("ggvis-chart")) });
+        return charts;
+      }
+
+      function allMarkableItems(chart) {
+        // ael: return a collection of all vega-level items that can be marked, within a given chart
+        var matches = [];
+        d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows })[0].each(function(el) { matches.push(el.__data__) });
+        return matches
+      }
+      
+      function relatedItems(chart, data_id, rownumbers) {
         // ael: return a collection of vega-level items
         //debugger;
-        var matches = []
-        // a clumsy way of finding histogram rectangles
-        d3.select(selector).select("svg.marks").selectAll("rect")[0].forEach(function(domElem) {
-          var item = domElem.__data__
-          if (item && item.provenance) {
-            (item.provenance.split(",")).some(function(thisID) {
-              if (itemIDs.indexOf(thisID) >= 0) {
-                matches.push(item);
-                return true;
-              } else { return false; }
-            })
-          }
+        var matches = [];
+        d3.selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows && d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
+          var item = el.__data__;
+          (JSON.parse(item.datarows)).some(function(thisID) {
+            if (rownumbers.indexOf(thisID) >= 0) {
+              matches.push(item);
+              return true;
+            } else { return false; }
+          })
         })
-        // and a clumsy way of finding dots
-        d3.select(selector).select("svg.marks").selectAll("path")[0].forEach(function(domElem) {
-          var item = domElem.__data__
-          if (item && item.provenance) {
-            if (itemIDs.indexOf(item.provenance) >= 0) {
-                matches.push(item);
-            }
-          }
-        })
-      
+        // console.log(matches);
         return matches;
       }
 
-      findScenarioMarks = function() {
+      function findScenarioMarks() {
           var scenarioMarks = [];
           var indices = [];
           d3.selectAll("g").each(function(f) {
@@ -167,7 +169,7 @@ oneTimeInitShinyGgvis = function() {
           return scenarioMarks;
       }
     
-      highlightScenarioMarks = function(marks, touchedScenario) {
+      function highlightScenarioMarks(marks, touchedScenario) {
         var highlightItems = [];
         var otherItems = [];
         marks.forEach(function(el) {
@@ -184,19 +186,30 @@ oneTimeInitShinyGgvis = function() {
       }
 
       chart.on("mouseover", function(event, item) {
+        /*
         if (item.mark && item.mark.def.description && item.mark.def.description.scenario) {
           var touchedScenario = item.mark.def.description.scenario
           var scenarioMarks = findScenarioMarks()
           highlightScenarioMarks(scenarioMarks, touchedScenario)
           d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
         }
-        if (item.provenance) {
-          // chart.update({ props: "highlight", items: relatedItems(item.provenance.split(",")) })
+        */
+        if (item.datarows) {
+          // console.log(item.datarows, item.mark.description.datasource)
+          var data_id = item.mark.def.description.datasource;
+          var p = data_id.indexOf(":");
+          if (p != -1) data_id = data_id.substr(0, p);
+          allCharts().forEach(function(ch) {
+            ch.update({ props: "highlight", items: relatedItems(ch, data_id, JSON.parse(item.datarows)) })
+          });
         }
       })
       chart.on("mouseout", function(event, item) {
-        // chart.update({ props: "update", duration: 1000, ease: "linear" })
-        highlightScenarioMarks( findScenarioMarks(), 0 )
+        allCharts().forEach(function(ch) {
+          ch.update({ props: "update", items: allMarkableItems(ch) });
+        });
+        //chart.update({ props: "update", duration: 500, ease: "linear" });
+        //highlightScenarioMarks( findScenarioMarks(), 0 )
       })
       chart.on("mousedown", function (evt, item) {
         // dragx and dragy are comma-separated strings of the form
@@ -208,7 +221,7 @@ oneTimeInitShinyGgvis = function() {
         //      1 -> { dataset: "mtcars", column: "mpg", row: 6, value: 15 }
         if (item.dragx || item.dragy) {        // this is an item the user can drag
           var handle = lively.morphic.Morph.makeCircle(pt(0,0), 8, 2, Color.gray, Color.black);
-          handle.itemRow = Number(item.provenance.substr(0,item.provenance.indexOf("/")));
+          handle.itemRow = JSON.parse(item.datarows)[0];
           toList = function(dragSpec) {
             s = dragSpec.split(",");
             return { scale: s[0], dataset: s[1], column: s[2] }

@@ -23,7 +23,7 @@ mark <- function(type, props, data = NULL) {
   m <- structure(
     compact(list(
       type = type,
-      data = as.pipeline(data),
+      data =   as.pipeline(data),
       props = markprops
     )),
     class = c(paste0("mark_", type), "mark", "ggvis_node")

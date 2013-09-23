@@ -98,7 +98,8 @@ print.pipeline <- function(x, ...) {
 # Return an id string, summarizing the pipeline
 pipeline_id <- function(x, props) {
   if (length(x) == 0) return(NULL)
-  paste(vapply(x, props = props, pipe_id, character(1)), collapse = "_")
+  # ael - just trying to clarify the args here
+  paste(vapply(x, pipe_id, FUN.VALUE=character(1), props = props), collapse = "_")
 }
 
 # Given a pipeline object, trim off all items previous to the last source

@@ -95,12 +95,12 @@ as.vega.mark <- function(mark) {
     }
     
     froms <- list()
-    froms$data <- mark$pipeline_id   # standard
-    description <- ""
+    froms$data <- mark$pipeline_id   # standard property for from
+    description <- list()
     if (!is.null(vegaprops$sharedProvenance)) {
-      froms$sharedProvenance <- fromJSON(vegaprops$sharedProvenance$value)
       description <- fromJSON(vegaprops$sharedProvenance$value)
     }
+    description$datasource <- mark$pipeline_id  # so it's accessible from the chart
     
     list(
       type = mark$type,

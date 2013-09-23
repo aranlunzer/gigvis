@@ -60,7 +60,7 @@ branch_histogram <- function(props = NULL, ...) {
     x2 ~ xmax__,
     y ~ count__,
     y2 ~ 0,
-    provenance = prop(quote(indices__), scale = FALSE)
+    datarows = prop(quote(indices__), scale = FALSE)
   )
   props <- merge_props(default, props)
 
@@ -160,18 +160,20 @@ bin.numeric <- function(data, weight = NULL, binwidth = 1, origin = NULL, right 
   
   count <- as.numeric(tapply(weight, bins, sum, na.rm=TRUE))
   count[is.na(count)] <- 0
-  
+
   indices <- 0
-  sizeTag <- paste0("/",length(data))
+  #sizeTag <- paste0("/",length(data))
   for (i in 1:length(levels(bins))){
     if(length(which(bins==levels(bins)[i])) != 0){
-      indices[i] <-  paste0(which(bins==levels(bins)[i]), sizeTag, collapse=",")
+      # used to add a data count "1/nnn", as a crude way of matching data sets 
+      #indices[i] <- paste(which(bins==levels(bins)[i]), collapse=",")
+      indices[i] <- toJSON(which(bins==levels(bins)[i]))
     }
     else {
-      indices[i] <- "NA"
+      indices[i] <- "[]"
     }
   }
-  
+
   results <- data.frame(
     count__ = count,
     x = x,

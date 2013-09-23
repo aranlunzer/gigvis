@@ -80,8 +80,8 @@ is.prop <- function(x) inherits(x, "prop")
 # Given a property and a dataset, get the value of the property.
 prop_value <- function(x, data) {
   if (x$type == "constant") return(rep(x$value, nrow(data)))
-  if (x$value == "rownumber") return(paste0(as.character(seq(1,nrow(data))),"/",as.character(nrow(data)))) # ael added
-
+  if (x$value == "singlerowstring") return(paste("[",seq(1,nrow(data)),"]")) # ael added
+  
   # Get the expression to evaluate
   if (x$type == "reactive") {
     expr <- x$value()

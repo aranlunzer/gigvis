@@ -36,11 +36,11 @@ default_mark_properties.default <- function(mark) {
 #' @rdname marks
 #' @export
 mark_symbol <- function(props = NULL, data = NULL)
-  mark("symbol", props = merge_props(props, props(provenance=prop(quote(rownumber), scale=FALSE))), data = data)
+  mark("symbol", props = merge_props(props, props(datarows=prop(quote(singlerowstring), scale=FALSE))), data = data)
 #' @S3method valid_mark_properties mark_symbol
 valid_mark_properties.mark_symbol <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "size", "shape", "provenance", "sharedProvenance", "dragx", "dragy")
+    "strokeOpacity", "size", "shape", "datarows", "sharedProvenance", "dragx", "dragy")
 }
 #' @S3method default_mark_properties mark_symbol
 default_mark_properties.mark_symbol <- function(mark) {
@@ -54,7 +54,7 @@ mark_image <- function(props = NULL, data = NULL) mark("image", props = props, d
 #' @S3method valid_mark_properties mark_image
 valid_mark_properties.mark_image <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "url", "align", "baseline", "provenance", "sharedProvenance")
+    "strokeOpacity", "url", "align", "baseline", "datarows", "sharedProvenance")
 }
 #' @S3method default_mark_properties mark_image
 default_mark_properties.mark_image <- function(mark) {
@@ -68,7 +68,7 @@ mark_arc <- function(props = NULL, data = NULL) mark("arc", props = props, data 
 #' @S3method valid_mark_properties mark_arc
 valid_mark_properties.mark_arc <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "innerRadius", "outerRadius", "startAngle", "endAngle", "provenance", "sharedProvenance")
+    "strokeOpacity", "innerRadius", "outerRadius", "startAngle", "endAngle", "datarows", "sharedProvenance")
 }
 #' @S3method default_mark_properties mark_arc
 default_mark_properties.mark_arc <- function(mark) {
@@ -82,7 +82,7 @@ mark_area <- function(props = NULL, data = NULL) mark("area", props = props, dat
 #' @S3method valid_mark_properties mark_area
 valid_mark_properties.mark_area <- function(mark) {
   c("x", "y", "y2", "height", "opacity", "fill", "fillOpacity", "stroke", 
-    "strokeWidth", "strokeOpacity", "interpolate", "tension", "provenance", "sharedProvenance")
+    "strokeWidth", "strokeOpacity", "interpolate", "tension", "datarows", "sharedProvenance")
 }
 #' @S3method default_mark_properties mark_area
 default_mark_properties.mark_area <- function(mark) {
@@ -96,7 +96,7 @@ mark_line <- function(props = NULL, data = NULL) mark("line", props = props, dat
 #' @S3method valid_mark_properties mark_line
 valid_mark_properties.mark_line <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "interpolate", "tension", "provenance", "sharedProvenance")
+    "strokeOpacity", "interpolate", "tension", "datarows", "sharedProvenance")
 }
 #' @S3method default_mark_properties mark_line
 default_mark_properties.mark_line <- function(mark) {
@@ -109,7 +109,7 @@ mark_rect <- function(props = NULL, data = NULL) mark("rect", props = props, dat
 #' @S3method valid_mark_properties mark_rect
 valid_mark_properties.mark_rect <- function(mark) {
   c("x", "x2", "y", "y2", "width", "opacity", "fill", "fillOpacity", "stroke",
-    "strokeWidth", "strokeOpacity", "provenance", "sharedProvenance")
+    "strokeWidth", "strokeOpacity", "datarows", "sharedProvenance")
 }
 #' @S3method default_mark_properties mark_rect
 default_mark_properties.mark_rect <- function(mark) {
@@ -123,7 +123,7 @@ mark_text <- function(props = NULL, data = NULL) mark("text", props = props, dat
 valid_mark_properties.mark_text <- function(mark) {
   c("x", "y", "text", "opacity", "fill", "fillOpacity", "stroke",
     "strokeWidth", "strokeOpacity", "align", "baseline", "dx", "dy",
-    "angle", "font", "fontSize", "fontWeight", "fontStyle", "provenance", "sharedProvenance")
+    "angle", "font", "fontSize", "fontWeight", "fontStyle", "datarows", "sharedProvenance")
 }
 #' @S3method default_mark_properties mark_text
 default_mark_properties.mark_text <- function(mark) {

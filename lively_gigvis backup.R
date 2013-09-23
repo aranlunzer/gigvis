@@ -3,67 +3,89 @@
 # a ggvis(...) is basically a ggvis_node(...) - a structure with classes "ggvis", "ggvis_node"
 
 # this is the equivalent of mark_xxxx
-lively_table <- function(data) {
+lively_table <- function(data = NULL) {
   structure(
-    list(
-      type = "lively_table",         # goes all the way through to the vega spec
-      data = data,
-      dataname = substitute(data)
-    ),
+    compact(list(
+      type = "lively_table",
+      data = as.pipeline(data)
+    )),
     class = c("lively_table_mark")    # to determine which as.vega gets used
   )
 }
 
-# a lively_table component behaves as one of the children...
-# nope - a lively_table component will no longer get asked.
-# component_type.lively_table_mark <- function(x) "children"
+# a lively_table component is one of the children
+component_type.lively_table_mark <- function(x) "children"
 
-# as a replacement for ggvis(), a degenerate form of ggvis_node (no props, no scales)
-# - eventually define S3 methods for ggvis, where lively_table is one of the types
-ggvis_table <- function(tableDef) {
-  # expecting the argument to be a lively_table_mark structure.
-  # turn it into a structure suitable for as.vega.
-  structure(tableDef, class = c("ggvis_table", "ggvis_node"))
+# a reduced form of ggvis_node (no props, no scales)
+ggvis_table <- function(...) {
+  args <- unname(list(...))
+  types <- vapply(args, component_type, character(1))
+  
+  components <- split(args, types)
+  if (length(components$data) > 0) {
+    # Capture names from ...
+    names <- dot_names(...)[types == "data"]
+    # Convert each component to a pipeline, preserving original names
+    pls <- Map(as.pipeline, components$data, name = names)
+    # Collapse into single pipeline
+    pl <- structure(unlist(pls, recursive = FALSE), class = "pipeline")    
+    # Trim any redundant sources
+    components$data <- trim_to_source(pl)
+  }
+    
+  structure(components, class = c("ggvis_table", "ggvis_node"))
 }
 
 as.vega.ggvis_table <- function(x, width = 600, height = 400, padding = NULL,
                           session = NULL, dynamic = FALSE, ...) {
   if (is.null(padding)) padding <- padding() # though ignored for now
-  # expecting the x argument to be a ggvis_table structure with a single
-  # element, which is a lively_table_mark structure.
-  data_id <- paste0(x$dataname, "_", digest(x$data))
-  datasets <- as.vega(x$data, data_id)
-  
-  # inline version of a degenerate as.vega.mark
-  markprops <- list()
-  markprops$update <- as.vega(props(backgroundColor="none"))
-  markprops$highlight <- as.vega(props(backgroundColor="red"))
-  #markprops$scenarioHighlight <- as.vega(props(fill="green", fillOpacity=0.3, stroke="black"))
-  
-  froms <- list()
-  froms$data <- data_id
-  description <- list()
-  #   if (!is.null(vegaprops$sharedProvenance)) {
-  #     description <- fromJSON(vegaprops$sharedProvenance$value)
-  #   }
-  description$datasource <- data_id  # so it's accessible from the chart
-  
-  mark_vega <- list(
-    type = x$type,
-    description = description,
-    properties = markprops,
-    from = froms
-  )
-  
+
+  # nodes <- flatten(x, session = session)
+  # inlining of just the useful bits of flatten() - namely, turning the top-level
+  # data element into a pipeline, then connecting the children to that pipeline
+  x$props <- props(x~x, y~y)
+  x$pipeline <- connect(x$data, x$props, NULL, session)
+  x$pipeline_id <- pipeline_id(x$data, x$props)
+
+  child <- x$children[[1]]
+  child$props <- x$props
+  child$pipeline <- x$pipeline
+  child$pipeline_id <- x$pipeline_id
+
+  nodes <- list(child)
+  datasets <- as.vega(isolate(x$pipeline()), x$pipeline_id)
+    
   spec <- list(
     data = datasets,
-    marks = list(mark_vega),
+    marks = lapply(nodes, as.vega),
     width = width,
     height = height,
     padding = 0 # was as.vega(padding), but vega's autopad was causing the mark to be duplicated
   )
   
   structure(spec, data_table = NULL)
+}
+
+as.vega.lively_table_mark <- function(def,session=NULL,dynamic=FALSE) {
+  markprops <- list()
+  markprops$update <- as.vega(props(datarows=prop(quote(singlerowstring), scale=FALSE)))  # might include sharedProvenance
+  markprops$highlight <- as.vega(props(fill="red"))
+  #markprops$scenarioHighlight <- as.vega(props(fill="green", fillOpacity=0.3, stroke="black"))
+  
+  froms <- list()
+  froms$data <- def$pipeline_id   # standard
+  description <- list()
+#   if (!is.null(vegaprops$sharedProvenance)) {
+#     description <- fromJSON(vegaprops$sharedProvenance$value)
+#   }
+  description$datasource <- def$pipeline_id  # so it's accessible from the chart
+  
+  list(
+    type = def$type,
+    description = description,
+    properties = markprops,
+    from = froms
+  )
 }
 
 view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, renderer = "svg") {
