@@ -20,6 +20,7 @@ view_static <- function(gv, renderer = "canvas", launch = TRUE) {
   copy_www_resources(temp_dir)
 
   spec <- as.vega(gv, dynamic = FALSE)
+
   vega_json <- toJSON(spec, pretty = TRUE)
 
   template <- paste(readLines(system.file('index.html', package='ggvis')),

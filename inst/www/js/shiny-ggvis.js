@@ -194,6 +194,10 @@ oneTimeInitShinyGgvis = function() {
           d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
         }
         */
+        // do this in the table-building code
+        //if (item.datacolumn) {
+        //  window.Shiny.shinyapp.sendInput({"yProp": '"'+item.datacolumn+'"' });
+        //}
         if (item.datarows) {
           // console.log(item.datarows, item.mark.description.datasource)
           var data_id = item.mark.def.description.datasource;
@@ -245,7 +249,7 @@ oneTimeInitShinyGgvis = function() {
             var chartLeft = rect.left + padding.left - worldRect.left();
             var chartGroup = targetChart.model().scene().items[0];
             var args = [];
-            var msg = { message: "set", args: args };
+            var msg = { message: "editData", args: args };
             if (this.xSpec) {
               var xVal = chartGroup.scales[this.xSpec.scale].invert(evtPos.x - chartLeft).toFixed(2);
               args.push( { dataset: this.xSpec.dataset, column: this.xSpec.column, row: this.itemRow, value: xVal } );

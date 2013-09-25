@@ -3,12 +3,14 @@
 # a ggvis(...) is basically a ggvis_node(...) - a structure with classes "ggvis", "ggvis_node"
 
 # this is the equivalent of mark_xxxx
-lively_table <- function(data) {
+lively_table <- function(data, xProp, yProp) {
   structure(
     list(
       type = "lively_table",         # goes all the way through to the vega spec
       data = data,
-      dataname = substitute(data)
+      dataname = substitute(data),
+      xProp = xProp,
+      yProp = yProp
     ),
     class = c("lively_table_mark")    # to determine which as.vega gets used
   )
@@ -26,9 +28,9 @@ ggvis_table <- function(tableDef) {
   structure(tableDef, class = c("ggvis_table", "ggvis_node"))
 }
 
-as.vega.ggvis_table <- function(x, width = 600, height = 400, padding = NULL,
+as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
                           session = NULL, dynamic = FALSE, ...) {
-  if (is.null(padding)) padding <- padding() # though ignored for now
+  if (is.null(padding)) padding <- padding() # top, right, bottom, left
   # expecting the x argument to be a ggvis_table structure with a single
   # element, which is a lively_table_mark structure.
   data_id <- paste0(x$dataname, "_", digest(x$data))
@@ -47,6 +49,8 @@ as.vega.ggvis_table <- function(x, width = 600, height = 400, padding = NULL,
   #     description <- fromJSON(vegaprops$sharedProvenance$value)
   #   }
   description$datasource <- data_id  # so it's accessible from the chart
+  description$xProp <- x$xProp
+  description$yProp <- x$yProp
   
   mark_vega <- list(
     type = x$type,
@@ -60,7 +64,7 @@ as.vega.ggvis_table <- function(x, width = 600, height = 400, padding = NULL,
     marks = list(mark_vega),
     width = width,
     height = height,
-    padding = 0 # was as.vega(padding), but vega's autopad was causing the mark to be duplicated
+    padding = as.vega(padding)
   )
   
   structure(spec, data_table = NULL)
@@ -69,11 +73,11 @@ as.vega.ggvis_table <- function(x, width = 600, height = 400, padding = NULL,
 view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, renderer = "svg") {
   # build an html page - which Lively will never look at, but a browser can view to help debugging
   uiList <- list()
+  uiList[[1]] <- textOutput("measures1")
   for (s in 1:length(r_gvSpecs)) {
     # ggvis_output builds a list of tags pulling in all ggvis-related scripts plus a div for the id
-    uiList[[s]] <- ggvis_output(paste0("plot", toString(s)))
+    uiList[[length(uiList)+1]] <- ggvis_output(paste0("plot", toString(s)))
   }
-  uiList[[length(uiList)+1]] <- textOutput("measures1")
   ui <- do.call("mainPanel", uiList)
 
   server <- function(input, output, session) {
@@ -94,7 +98,7 @@ view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, rende
       if (!is.null(input$trigger)) {
         msg <- fromJSON(input$trigger);
         #print(msg)
-        if (msg[["message"]] == "set") {
+        if (msg[["message"]] == "editData") {
           cmds <- msg[["args"]]
           for (c in cmds) {
             # dataset,column,row,value
@@ -103,7 +107,9 @@ view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, rende
             # write(cmd, file="gvActionLog", append=TRUE)
             eval(parse(text=cmd),envir=globalenv())
           }
-          gvReactives$refresh <- isolate(gvReactives$refresh)+1
+          # hack
+          if (cmds[[1]][["dataset"]] == "trialLine") { triggerRefresh("Chart")
+          } else { triggerRefresh("Views") }      # force refresh of all views
         }
       }
     })
@@ -143,15 +149,16 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
   force(id)
   
   obs <- observe({
-    spec <- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
+    if (!is.null(r_gv())) {
+      spec <- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
     
-    session$sendCustomMessage("gigvis_vega_spec_with_data", list(
-      plotId = id,
-      spec = spec,
-      renderer = renderer
-    ))
-    
-    })
+      session$sendCustomMessage("gigvis_vega_spec_with_data", list(
+        plotId = id,
+        spec = spec,
+        renderer = renderer
+      ))
+    }
+  })
   
   session$onSessionEnded(function() {
     obs$suspend()

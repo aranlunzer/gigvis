@@ -2674,7 +2674,11 @@ function vg_data_duplicate(d) {
   } else if (vg.isObject(d)) {
     x = {};
     for (i in d) {
-      x[i] = vg_data_duplicate(d[i]);
+// ael: avoid attempting to copy function and its arbitrary context stack
+if (typeof d[i] === 'function') {x[i] = d[i]}
+else { x[i] = vg_data_duplicate(d[i]);}
+    // was:
+    // x[i] = vg_data_duplicate(d[i]);
     }
   }
   return x;
@@ -6320,7 +6324,7 @@ function vg_hLegendLabels() {
         data = this._data[name],
         n = source ? source.length : 0, i, x;
     for (i=0; i<n; ++i) {
-      x = vg_data_duplicate(data);
+        x = vg_data_duplicate(data);
       if (vg.isTree(data)) vg_make_tree(x);
       this.ingest(source[i], tx, x);
     }
