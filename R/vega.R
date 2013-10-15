@@ -101,7 +101,7 @@ as.vega.mark <- function(mark) {
     markprops$initial <- as.vega(props(x=prop(quote(initialx), scale="x"),
                                        y=prop(quote(initialy), scale="y"),
                                        opacity=0.25))
-  } else {
+  } else if (mark$type == "symbol" || mark$type == "line") {
     markprops$initial <- as.vega(props(opacity=0.25))
   }
   

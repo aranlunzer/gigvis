@@ -202,7 +202,6 @@ if (debug) console.log(livelyPendingCharts, livelyPendingData);
         chart.update();   // need to render once anyway
         if (movingItems(chart).length) {
           chart.update({ props: "initial" });
-          console.log("set initial");
           chart.update({ props: "update", /*items: movingItems(chart),*/ duration: 750 });
         }
       } else {
@@ -385,13 +384,18 @@ so then the question is how to send an update to a dataset on which another depe
 
           handle.throttledDragHandler = Functions.throttle((function(evt) {
             var targetChart = this.chart;
-            var rect = targetChart._el.getBoundingClientRect();
+            var chartRect = $(targetChart._el).bounds();
+            // var rect = targetChart._el.getBoundingClientRect();
             var evtPos = evt.getPosition() // this.globalBounds().center();
             var padding = targetChart.padding();
-            $world.cachedBounds = null;
-            var worldRect = $world.getBounds()
-            var chartTop = rect.top + padding.top - worldRect.top();
-            var chartLeft = rect.left + padding.left - worldRect.left();
+            var chartTop = chartRect.top + padding.top;
+            var chartLeft = chartRect.left + padding.left;
+/*
+$world.cachedBounds = null;
+var worldRect = $world.getBounds()
+var chartTop = rect.top + padding.top - worldRect.top();
+var chartLeft = rect.left + padding.left - worldRect.left();
+*/
             var chartGroup = targetChart.model().scene().items[0];
             var args = [];
             var msg = { message: "editData", args: args };

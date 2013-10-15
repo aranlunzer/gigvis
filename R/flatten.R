@@ -36,7 +36,7 @@ flatten <- function(node, parent = NULL, session = NULL) {
     # from parent to child.  In addition a node can be given an explicit datasource that overrides
     # that from the data.
     if (is.null(node$datasource_id)) {   # not set from sharedProvenance
-      if (is.null(parent$datasource_id)) node$datasource_id <- digest(sluice(node$data, props=props()))
+      if (is.null(parent$datasource_id)) node$datasource_id <- node$pipeline_id # digest(sluice(node$data, props=props()))
       else node$datasource_id <- parent$datasource_id
     }
   }

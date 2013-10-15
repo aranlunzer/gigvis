@@ -53,7 +53,7 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
   #   if (!is.null(vegaprops$sharedProvenance)) {
   #     description <- fromJSON(vegaprops$sharedProvenance$value)
   #   }
-  description$datasource <- digest(isolate(x$data()))  # for figuring out row numbers
+  description$datasource <- x$dataname #digest(isolate(x$data()))  # for figuring out row numbers
   description$xProp <- x$xProp
   description$yProp <- x$yProp
   
