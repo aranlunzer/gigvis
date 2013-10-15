@@ -98,8 +98,18 @@ print.pipeline <- function(x, ...) {
 # Return an id string, summarizing the pipeline
 pipeline_id <- function(x, props) {
   if (length(x) == 0) return(NULL)
-  # ael - just trying to clarify the args here
-  paste(vapply(x, pipe_id, FUN.VALUE=character(1), props = props), collapse = "_")
+  # paste(vapply(x, props = props, pipe_id, character(1)), collapse = "_")   original
+  # ael - first, just trying to clarify the args here
+  id <- paste(vapply(x, pipe_id, FUN.VALUE=character(1), props = props), collapse = ":")
+  # ael - then strip out anything from the first "/" to the last (or the end)
+  parts <- unlist(strsplit(id, "/"))
+  if (length(parts) <= 2) {
+    # take the first only
+    parts[[1]]
+  } else {
+    # glue together the first and last
+    paste0(parts[[1]], "_", parts[[length(parts)]])
+  }
 }
 
 # Given a pipeline object, trim off all items previous to the last source

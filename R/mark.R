@@ -15,10 +15,15 @@
 mark <- function(type, props, data = NULL) {
   markprops <- props
   if (exists("gvParms")) {
-    # print(toJSON(gvParms,collapse=""))
-    markprops <- merge_props(props, props(sharedProvenance = toJSON(gvParms,collapse="")))
-    # was toJSON(isolate(reactiveValuesToList(gvParms)),collapse="")
-    # but gvParms is currently not reactive
+    parms <- isolate(reactiveValuesToList(gvParms))
+    if (exists("gvScenarioParms")) {
+      for (p in ls(gvScenarioParms)) {
+        parms[[p]] <- gvScenarioParms[[p]]
+      }
+    }
+    markprops <- merge_props(props, props(sharedProvenance = toJSON(parms,collapse="")))
+    # markprops <- merge_props(props, props(sharedProvenance = toJSON(gvParms,collapse="")))
+    # if gvParms goes back to being non-reactive
   } 
   m <- structure(
     compact(list(

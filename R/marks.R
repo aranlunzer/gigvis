@@ -16,7 +16,7 @@
 #'   properties listed below.
 #' @param data An optional dataset, if you want to override the usual data
 #'   inheritance for this mark.
-NULL
+# NULL    ????
 
 # Return a character vector of valid properties for a given mark
 valid_mark_properties <- function(mark) UseMethod("valid_mark_properties")
@@ -40,11 +40,11 @@ mark_symbol <- function(props = NULL, data = NULL)
 #' @S3method valid_mark_properties mark_symbol
 valid_mark_properties.mark_symbol <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "size", "shape", "datarows", "sharedProvenance", "dragx", "dragy")
+    "strokeOpacity", "size", "shape", "datarows", "sharedProvenance", "dragx", "dragy", "initialx", "initialy")
 }
 #' @S3method default_mark_properties mark_symbol
 default_mark_properties.mark_symbol <- function(mark) {
-  props(fill = "#000000")
+  props(fill = "#000000", opacity=1.0)
 }
 
 
@@ -100,7 +100,7 @@ valid_mark_properties.mark_line <- function(mark) {
 }
 #' @S3method default_mark_properties mark_line
 default_mark_properties.mark_line <- function(mark) {
-  props(stroke = "#000000")
+  props(stroke = "#000000", opacity=1.0)
 }
 
 #' @export
@@ -113,7 +113,7 @@ valid_mark_properties.mark_rect <- function(mark) {
 }
 #' @S3method default_mark_properties mark_rect
 default_mark_properties.mark_rect <- function(mark) {
-  props(stroke = "#000000", fill = "#333333")
+  props(stroke = "#000000", fill = "#333333", opacity=1.0)
 }
 
 #' @export

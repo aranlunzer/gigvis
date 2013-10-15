@@ -5285,6 +5285,7 @@ vg.scene.item = function(mark) {
       list.item = item;
       list.ease = item.mark.ease || this.ease;
       list.next = this.updates.next;
+list.remove = null;     // ael - try to avoid confusion with remove() method
       this.updates.next = list;
     }
     return this;

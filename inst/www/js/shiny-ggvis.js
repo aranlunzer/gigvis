@@ -5,7 +5,16 @@
 // oneTimeInitShinyGgvis should only be called once for a page, given that initShiny()
 // in shiny.js retains the Shiny object if it's already defined.
 oneTimeInitShinyGgvis = function() {
-  shinyGgvisInitialized = true;
+  window.shinyGgvisInitialized = true;
+
+  var debug = true;
+
+  var pendingData = {};
+  var allPlots = {};
+  
+  var livelyPendingData = {};
+  var livelyPendingCharts = {};
+  var livelyRenderedCharts = {};
 
   var ggvisOutputBinding = new Shiny.OutputBinding();
   $.extend(ggvisOutputBinding, {
@@ -24,7 +33,6 @@ oneTimeInitShinyGgvis = function() {
   });
   Shiny.outputBindings.register(ggvisOutputBinding, 'shiny.ggvisOutput');
 
-  var pendingData = {};
   Shiny.addCustomMessageHandler("ggvis_data", function(message) {
     var plotId = message.plotId;
     var name = message.name;
@@ -46,13 +54,12 @@ oneTimeInitShinyGgvis = function() {
     }
   });
 
-
   // Receive a vega spec and parse it
   Shiny.addCustomMessageHandler("ggvis_vega_spec", function(message) {
     var plotId = message.plotId;
     var spec = message.spec;
     var renderer = message.renderer;
-
+if (debug) console.log("gigvis_vega_spec", spec);
     vg.parse.spec(spec, function(chart) {
       var selector = ".ggvis-output#" + plotId;
       var $el = $(selector);
@@ -61,71 +68,185 @@ oneTimeInitShinyGgvis = function() {
       ggvisInit(plotId);
 
       // When done resizing, update with new width and height
-      $el.resizable({
-        helper: "ui-resizable-helper",
-        grid: [10, 10],
-        stop: function() {
-          var padding = chart.padding();
-          chart.width($el.width() - padding.left - padding.right);
-          chart.height($el.height() - padding.top - padding.bottom);
-          chart.update();
-        }
-      });
+      if ($el.resizable) {            // ael- might not be available
+        $el.resizable({
+          helper: "ui-resizable-helper",
+          grid: [10, 10],
+          stop: function() {
+            var padding = chart.padding();
+            chart.width($el.width() - padding.left - padding.right);
+            chart.height($el.height() - padding.top - padding.bottom);
+            chart.update();
+          }
+        });
+      }
     });
   });
 
-
-  // ael added.  a lot of replication of the above, but that should make it easier
+  // a bunch of functions added by ael.
+  // a lot of replication of the above, but that should make it easier
   // to track code changes.
-  // Receive a vega spec, complete with data, and parse it
-  Shiny.addCustomMessageHandler("gigvis_vega_spec_with_data", function(message) {
-    var plotId = message.plotId;
-    var spec = message.spec;
-    var renderer = message.renderer || "canvas";  // ael
 
-    vg.parse.spec(spec, function(chart) {
-    // This callback is called from within vg.parse.data, once the data in the spec
-    // have been procured.
-    // chart is a viewConstructor, already initialised with width, height,
-    // viewport, padding, marks, data - all derived from the spec.
-    // The standard viewConstructor is that returned by vg.ViewFactory().
-    // If called with an el: elem, view.initialize(elem) is invoked and does
-    // the work of setting up a div.vega.  The view is given ._renderer, ._handler etc
-    // and the handler (e.g., vg.svg.Handler) records the view (as ._obj).
-    // The view's .on method adds to view._handlers a structure { type:, handler:, svg: }
-    // and adds the svg part (an svgHandler) to the dom as a listener.
-      console.log(spec);  // harmless and useful
-      var selector = ".ggvis-output#" + plotId;
+  // Receive a vega spec and parse it
+  Shiny.addCustomMessageHandler("ggvis_lively_vega_spec", function(message) {
+    var chartId = message.chartId;
+    var version = message.version;
+    var spec = message.spec;
+    var renderer = message.renderer;
+    var dataSeparate = message.dataSeparate;    // whether data are sent separately
+    console.log("ggvis_lively_vega_spec", chartId, version, spec); // { dataSeparate: dataSeparate }); // , message.timings);
+
+    // If data are included, we can build and render immediately.
+    if (!dataSeparate) return buildLivelyChart(spec, chartId, version, renderer, false);
+    
+    // But if data are being sent separately, add the details for this chart to
+    // the pending-charts list, along with an extracted list of all the data
+    // sources (with the right version number) the chart will need.
+    var dataNames = spec.data.map(function(dSpec) { return dSpec.name });
+    livelyPendingCharts[chartId] = { version: version, dataNames: dataNames, spec: spec, renderer: renderer };
+
+    checkPendingChartsAndData();
+  });
+
+  // receive a data set for a chart whose spec may or may not have been sent yet
+  Shiny.addCustomMessageHandler("ggvis_lively_data", function(message) {
+    var chartId = message.chartId;
+    var version = message.version;
+    var name = message.name;
+    // before we started dealing with dynamic split dfs, message.value would be a 
+    // one-element array holding a { name: n, values: valueArray } object.
+    // now that object could be...
+    //   { name: format: values: {children: } }  for a xxx_tree dataset
+    //   { name: source: transform: }    for using the result of parsing a xxx_tree
+    var dataSpec = message.value[0];
+    var values = dataSpec.values;   // may be undefined
+if (debug) console.log("data", chartId, version, name);
+
+    // If the data spec belongs to a chart that's already rendered, and contains a
+    // values array, send it in.
+    var existingChartDetails = livelyRenderedCharts[chartId];
+    if (existingChartDetails && existingChartDetails.version == version) {
+      if (values) {
+        var chart = existingChartDetails.chart;
+        // HUMONGOUS HAIRY HACK
+        // if there isn't a cleaner way of doing this, we should add one
+        if (values.children) {
+          var treeDef = chart.model().defs().data.load[name];
+          treeDef[0].children = values.children;    // mega-hack
+          var subDataSpec = {};
+          subDataSpec[name] = treeDef;
+          chart.data(subDataSpec);
+        } else {
+          var subData = {};
+          subData[name] = values;
+          chart.data(subData);
+        }
+        chart.update();
+        chart.highlightDragItems();
+      }
+      // chart.update({props: "update", duration: 500});
+    } else {
+      // put the dataSpec in the pendingData collection, for use by the chart when all
+      // data are assembled.
+      var dataRecord = livelyPendingData[chartId] || (livelyPendingData[chartId] = {});
+      if (dataRecord.version != version) {   // wrong version, or none
+        dataRecord.version = version;
+        dataRecord.datasets = {};
+      }
+      dataRecord.datasets[name] = dataSpec;
+
+      checkPendingChartsAndData();
+    }
+  });
+  
+  function checkPendingChartsAndData() {
+    // For each chart in the pendingCharts list, see if all the datasets with
+    // the right version number have turned up yet.  If so, build the chart and
+    // supply the data.
+if (debug) console.log(livelyPendingCharts, livelyPendingData);
+    for (var chartId in livelyPendingCharts) {
+      var pendingChartRecord = livelyPendingCharts[chartId];
+      var version = pendingChartRecord.version;
+      var pendingDataRecord = livelyPendingData[chartId];
+      if (pendingDataRecord && (pendingDataRecord.version == version)) {
+        var dataNames = pendingChartRecord.dataNames;  // what the plot wants
+        if (dataNames.every(function (name) { return pendingDataRecord.datasets[name] != undefined })) {
+          buildLivelyChart(pendingChartRecord.spec, chartId, version, pendingChartRecord.renderer, true);  // true because data is separate; look in pendingData.
+        }
+      }
+    }
+  }
+
+  function buildLivelyChart(spec, chartId, version, renderer, dataSeparate) {
+    // NB: this is asynchronous.  On return, the chart won't yet have been built.
+
+    vg.parse.spec(spec, function (chartBuilder) {
+      // This callback is called from within vg.parse.data, once the data in the spec
+      // have been procured.
+      // chart is a viewConstructor, already initialised with width, height,
+      // viewport, padding, marks, data - all derived from the spec.
+      // The standard viewConstructor is that returned by vg.ViewFactory().
+      // If called with an el: elem, view.initialize(elem) is invoked and does
+      // the work of setting up a div.vega.  The view is given ._renderer, ._handler etc
+      // and the handler (e.g., vg.svg.Handler) records the view (as ._obj).
+      // The view's .on method adds to view._handlers a structure { type:, handler:, svg: }
+      // and adds the svg part (an svgHandler) to the dom as a listener.
+      var selector = ".ggvis-output#" + chartId;
       var $el = $(selector);
       // disable the default hover behaviour
-      var chart = chart({ el: selector, hover: false, renderer: renderer });
+      var chart = chartBuilder({ el: selector, hover: false, renderer: renderer });
       $el.data("ggvis-chart", chart);   // a convenient way to access the View object
+      livelyRenderedCharts[chartId] = { version: version, chart: chart };
 
-      // instead of ggvisInit(plotId);
-      chart.update();
-
-    // ael: abandoned attempt to use d3 drag behaviour
-/*
-    var mydrag = d3.behavior.drag()
-        .on("drag", function(item) {
-          var rowString = item.provenance;
-          var scaledX = item.mark.group.scales["x"].invert(d3.event.x).toFixed(2);
-          var scaledY = item.mark.group.scales["y"].invert(d3.event.y).toFixed(2);
-          window.Shiny.onInputChange("trigger", "drag:"+rowString+":"+String(scaledX)+":"+String(scaledY)+":"+String(d3.event.x)+":"+String(d3.event.y) )
-          })
-    
-    chart.model().scene().items[0].items.forEach(function(series) {
-      series.items.forEach(function(item) {
-        if (item.drag) {
-          d3.select(item._svg).call(mydrag);
+      if (!dataSeparate) {
+        chart.update();   // need to render once anyway
+        if (movingItems(chart).length) {
+          chart.update({ props: "initial" });
+          console.log("set initial");
+          chart.update({ props: "update", /*items: movingItems(chart),*/ duration: 750 });
         }
-      })
-    })
+      } else {
+        // this function is only called once the pendingData are complete
+/*  ***** currently not used *****
+Code to load separately sent data (including tree-structured data) into a newly created chart.  Starting point: try using vg.parse.data here to get the model to pick up the data that need some processing such as tree expansion and flattening.  in vg.parse.spec, vg.parse.data is called with function() { callback(viewConstructor) } that gets called when all datasets have successfully loaded.  before that vg.parse.data returns a model with elements defs, load, flow, source... representing all loaded data, with flow and source set up when called for.  in vg.parse.spec this goes into the data element.
+
+only Model.data() attends to the data.flow element.  Model.data() is called from View.data().  the former will only try to ingest datasets whose names are already registered in _defs.data.defs.  ingest will apply transforms if they are already registered in  _defs.data.flow (which is what we'd need for flattening the tree data to its non-tree analogue).
+
+datasets with a "source" property are handled as part of the Model.ingest() processing.  for example, a split df results in a dataset foo that has a source foo_tree.  this sets up an entry _defs.data.source["foo_tree"] = ["foo"]  (see vg.parse.data).  then in vg.model.dependencies() - called from model.ingest(), after model._data["foo_tree"] has been set up, following transformation - all datasets that depend on foo_tree are ingested in turn.
+
+so it looks like...  if we can set up the defs, flow, load, source elements in the model._data then call View.data() we might be laughing.  or in fact if the parsing has gone ok we don't have to worry which ones need parsing; they'll have been put into the defs element, with the things they depend on in source etc.
+
+...note that this is only really needed in the case where we have more than one dataset, with dependency relationships.
+
+so then the question is how to send an update to a dataset on which another depends - the example for now being tree-structured data.  in theory there should be a way to do it by just replacing the foo_tree definition - the { name: format: values: } object in data.defs - then saying "model.ingest("foo_tree")", which would do the tree parsing then tell "foo" to update itself too.  how to do this through the View...
 */
+
+//  simple version:      chart.data(livelyPendingData[chartId].datasets);
+
+        // reverse engineering the Vega code suggested that the following might work.
+        // first prepare a dataDefs structure as a simple array with elements
+        //    { name: ... }   (see the comment in ggvis_lively_data method above)
+        var pendingDataRecord = livelyPendingData[chartId];
+        var dataDefs = [];
+        for (var dataId in pendingDataRecord.datasets) {
+          dataDefs.push(pendingDataRecord.datasets[dataId])
+        }
+        // then tell Vega to parse that structure, and load the result.
+        var dataSpec = vg.parse.data(dataDefs, function() {
+          chart.model().defs().data = dataSpec;   // shove the filled-in spec into the model where expected
+          chart.data(dataSpec.load);  // then load all datasets listed in the load element
+          chart.update();
+          delete livelyPendingCharts[chartId];
+          delete livelyPendingData[chartId];
+        })
+      }
 
       function allCharts() {
         var charts = [];
-        $(".ggvis-output").each(function(i, el) { charts.push($(el).data("ggvis-chart")) });
+        $(".ggvis-output").each(function(i, el) {
+          var ch = $(el).data("ggvis-chart");
+          if (ch) charts.push(ch);
+        });
         return charts;
       }
 
@@ -136,11 +257,17 @@ oneTimeInitShinyGgvis = function() {
         return matches
       }
       
-      function relatedItems(chart, data_id, rownumbers) {
+      function relatedItems(chart, item) {
         // ael: return a collection of vega-level items
         //debugger;
+        
+        var rownumbers = JSON.parse(item.datarows);
+        var data_id = item.mark.def.description.datasource;
+        var p = data_id.indexOf(":");
+        if (p != -1) data_id = data_id.substr(0, p);
+        
         var matches = [];
-        d3.selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows && d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
+        d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows && d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
           var item = el.__data__;
           (JSON.parse(item.datarows)).some(function(thisID) {
             if (rownumbers.indexOf(thisID) >= 0) {
@@ -153,10 +280,20 @@ oneTimeInitShinyGgvis = function() {
         return matches;
       }
 
-      function findScenarioMarks() {
+      function draggableItems(chart) {
+        // ael: return a collection of vega-level items that have secondx, secondy props
+        return d3.select(chart._el).selectAll("svg.marks path").filter(function(d) { return d && d.dragx })[0].map(function(el) { return el.__data__ });
+      }
+
+      function movingItems(chart) {
+        // ael: return a collection of vega-level items that have initialx, initialy props
+        return d3.select(chart._el).selectAll("svg.marks path").filter(function(d) { return d && d.initialx })[0].map(function(el) { return el.__data__ });
+      }
+
+      function findAndSetScenarioMarks(chart) {
           var scenarioMarks = [];
           var indices = [];
-          d3.selectAll("g").each(function(f) {
+          d3.select(chart._el).selectAll("g").each(function(f) {
             var el = $(this)[0];
             var s;
             try { s = el.firstChild.__data__.mark.def.description.scenario } catch(e) { s = undefined };
@@ -165,11 +302,12 @@ oneTimeInitShinyGgvis = function() {
               indices.push(s);
               }
           });
+          // associate the found marks with the scenario indices
           d3.selectAll(scenarioMarks).data(indices);
           return scenarioMarks;
       }
     
-      function highlightScenarioMarks(marks, touchedScenario) {
+      function highlightScenarioMarks(chart, marks, touchedScenario) {
         var highlightItems = [];
         var otherItems = [];
         marks.forEach(function(el) {
@@ -184,38 +322,43 @@ oneTimeInitShinyGgvis = function() {
         chart.update({ props: "update", items: otherItems });
         chart.update({ props: "scenarioHighlight", items: highlightItems });
       }
-
-      chart.on("mouseover", function(event, item) {
-        /*
+      
+      chart.dragItem = null;
+      chart.on("mouseover", (function(event, item) {
+        if (this.dragItem) return;
+        var scenarioMarks = findAndSetScenarioMarks(this);
         if (item.mark && item.mark.def.description && item.mark.def.description.scenario) {
           var touchedScenario = item.mark.def.description.scenario
-          var scenarioMarks = findScenarioMarks()
-          highlightScenarioMarks(scenarioMarks, touchedScenario)
+          highlightScenarioMarks(this, scenarioMarks, touchedScenario)
           d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
-        }
-        */
-        // do this in the table-building code
-        //if (item.datacolumn) {
-        //  window.Shiny.shinyapp.sendInput({"yProp": '"'+item.datacolumn+'"' });
-        //}
-        if (item.datarows) {
-          // console.log(item.datarows, item.mark.description.datasource)
-          var data_id = item.mark.def.description.datasource;
-          var p = data_id.indexOf(":");
-          if (p != -1) data_id = data_id.substr(0, p);
+        } else if (item.datarows && !(item.mark.marktype == "rect" && scenarioMarks.length > 0)) {  // hack to disable brushing on main-scenario histogram when scenarios are being shown
           allCharts().forEach(function(ch) {
-            ch.update({ props: "highlight", items: relatedItems(ch, data_id, JSON.parse(item.datarows)) })
+            ch.update({ props: "highlight", items: relatedItems(ch, item) })
           });
         }
-      })
-      chart.on("mouseout", function(event, item) {
-        allCharts().forEach(function(ch) {
-          ch.update({ props: "update", items: allMarkableItems(ch) });
-        });
-        //chart.update({ props: "update", duration: 500, ease: "linear" });
-        //highlightScenarioMarks( findScenarioMarks(), 0 )
-      })
-      chart.on("mousedown", function (evt, item) {
+      }).bind(chart));
+      function restoreAllMarks() {
+          allCharts().forEach(function(ch) {
+            ch.update({ props: "update", items: allMarkableItems(ch) });
+          });
+      }
+      chart.highlightDragItems = (function () {
+          if (this.dragItem) {
+            var dragItem = this.dragItem;
+            allCharts().forEach(function(ch) {
+              ch.update({ props: "highlight", items: relatedItems(ch, dragItem) })
+            });
+          }
+      }).bind(chart);
+      chart.endDrag = (function () {
+        this.dragItem = null;
+        restoreAllMarks();
+      }).bind(chart);
+      chart.on("mouseout", (function(event, item) {
+        if (this.dragItem) return;
+        if (item.datarows) restoreAllMarks();
+      }).bind(chart));
+      chart.on("mousedown", (function (evt, item) {
         // dragx and dragy are comma-separated strings of the form
         //    scaleName,datasetName,columnName  (e.g. x,mtcars,wt)
         // we signal to R with structured messages (JSON encoded) such as
@@ -224,23 +367,25 @@ oneTimeInitShinyGgvis = function() {
         //      0 -> { dataset: "mtcars", column: "wt", row: 6, value: 3.5 }
         //      1 -> { dataset: "mtcars", column: "mpg", row: 6, value: 15 }
         if (item.dragx || item.dragy) {        // this is an item the user can drag
-          var handle = lively.morphic.Morph.makeCircle(pt(0,0), 8, 2, Color.gray, Color.black);
+          // var handle = lively.morphic.Morph.makeCircle(pt(0,0), 8, 2, Color.gray, Color.black);
+          var handleSize = 6;
+          var handle = lively.morphic.Morph.makePolygon(
+                [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize)], 2, Color.black, Color.black);
+
+          this.dragItem = item;
           handle.itemRow = JSON.parse(item.datarows)[0];
-          toList = function(dragSpec) {
+          handle.chart = this;
+          
+          function toList(dragSpec) {
             s = dragSpec.split(",");
             return { scale: s[0], dataset: s[1], column: s[2] }
           }
-          
           if (item.dragx) handle.xSpec = toList(item.dragx)
           if (item.dragy) handle.ySpec = toList(item.dragy)
 
-          handle.addScript(function onDrag(evt) {
-            var now = new Date().getTime();
-            if (this.lastTime && now - this.lastTime < 200) return;
-            this.lastTime = now;
-
-            var targetChart = $(".ggvis-output#plot1").data("ggvisChart");
-            var rect = $(".ggvis-output#plot1")[0].getBoundingClientRect();
+          handle.throttledDragHandler = Functions.throttle((function(evt) {
+            var targetChart = this.chart;
+            var rect = targetChart._el.getBoundingClientRect();
             var evtPos = evt.getPosition() // this.globalBounds().center();
             var padding = targetChart.padding();
             $world.cachedBounds = null;
@@ -258,18 +403,26 @@ oneTimeInitShinyGgvis = function() {
               var yVal = chartGroup.scales[this.ySpec.scale].invert(evtPos.y - chartTop).toFixed(2);
               args.push( { dataset: this.ySpec.dataset, column: this.ySpec.column, row: this.itemRow, value: yVal } );
             }
-            window.Shiny.onInputChange("trigger", JSON.stringify(msg))
-            //console.log(msg)
+            window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+          }).bind(handle), 200);
+
+          handle.addScript(function onDrag(evt) {
+            this.throttledDragHandler(evt);
           }).bind(handle);
-          handle.addScript(function onDropOn(evt) { this.remove() }).bind(handle)
+          
+          handle.addScript(function onDropOn(evt) { this.remove(); this.chart.endDrag() }).bind(handle);
+          handle.getGrabShadow = function() { return null };
+          
           //evt.hand.getPosition()
           evt.hand.grabMorph(handle, evt);
           handle.setPosition(pt(-4,-4));
           $world.draggedMorph = handle;
         }
-      }.bind(chart))
+      }).bind(chart));
     });
-  });
+  };
+
+// utility functions
 
   // Sets height and width of wrapper div to contain the plot area.
   // This is so that the resize handle will be put in the right spot.
@@ -281,7 +434,6 @@ oneTimeInitShinyGgvis = function() {
     $el.height($plotarea.height());
   }
 
-  var allPlots = {};
   function ggvisInit(plotId) {
     var chart = $(".ggvis-output#" + plotId).data("ggvis-chart");
     allPlots[plotId] = chart;
@@ -295,12 +447,15 @@ oneTimeInitShinyGgvis = function() {
       updateGgvisDivSize(plotId);
     }
   }
-  
+
   refreshShinyGgvis = function() {
     // The user is throwing away the existing chart(s) and building anew. 
-    // Doesn't seem to be much we can/should do here.
     pendingData = {};
     allPlots = {};
+    
+    livelyPendingData = {};
+    livelyPendingCharts = {};
+    livelyRenderedCharts = {};
   }
 };
 
