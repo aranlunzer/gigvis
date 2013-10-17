@@ -102,7 +102,7 @@ view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, rende
     observe({
       if (is.null(input$quit)) return()
       if (input$quit > 0) stopApp()
-    })
+    }, label="obs_quit")
   }
 
   # try 3 times to find an available port, somewhere in the range 8120 to 8149
@@ -150,7 +150,7 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
           dataSeparate = FALSE
         ))
       }
-    })
+    }, label="obs_whole_spec")
     
     session$onSessionEnded(function() {
       obs$suspend()
@@ -182,7 +182,7 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
         
         spec_struct
       }
-    })
+    }, label="react_spec")
     lively_observe_spec(r_spec, id, session, renderer)
     lively_observe_data(r_spec, id, session)
   }
@@ -203,7 +203,7 @@ lively_observe_spec <- function(r_spec, id, session, renderer) {
         # timings = timeTracker      disabled
       ))
     }
-  })
+  }, label="obs_spec")
   session$onSessionEnded(function() {
     obs$suspend()
   })
@@ -297,7 +297,7 @@ lively_observe_data <- function(r_spec, id, session) {
                 }
               }
             }
-          })
+          }, label="obs_single_data")
           session$onSessionEnded(function() {
             obs$suspend()
           })
@@ -308,7 +308,7 @@ lively_observe_data <- function(r_spec, id, session) {
       }
     }
     all_chart_observers[[id]] <<- data_observers 
-  })
+  }, label="obs_all_data")
   session$onSessionEnded(function() {
     obs_all$suspend()
   })

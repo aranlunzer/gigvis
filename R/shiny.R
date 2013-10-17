@@ -72,7 +72,7 @@ observe_ggvis <- function(r_gv, id, session, renderer = "canvas", ...) {
     stop("observe_ggvis requires a reactive expression that returns a ggvis object",
       call. = FALSE)
   }
-  r_spec <- reactive(as.vega(r_gv(), session = session, dynamic = TRUE, ...))
+  r_spec <- reactive( as.vega(r_gv(), session = session, dynamic = TRUE, ...) )
 
   observe_spec(r_spec, id, session, renderer)
   observe_data(r_spec, id, session)

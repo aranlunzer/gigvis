@@ -89,7 +89,7 @@ active_props <- function(data, nodes) {
   reactive_prop <- function(props, data) {
     force(props)
     force(data)
-    reactive(apply_props(data(), props))
+    reactive(apply_props(data(), props), label="react_prop")
   }
   
   data_out <- new.env(parent = emptyenv())
