@@ -77,7 +77,7 @@ branch_histogram <- function(...) {
   branch(
     transform_bin(...),
     branch(
-      props(x = ~xmin__, x2 = ~xmax__, y = ~count__, y2 = 0),
+      props(x = ~xmin__, x2 = ~xmax__, y = ~count__, y2 = 0, datarows = prop(quote(indices__), scale = FALSE)),
       mark_rect(),
       ...,
       drop_named = TRUE
@@ -136,22 +136,24 @@ bin.data.frame <- function(x, x_var, ...) {
 }
 
 #' @S3method bin numeric
-bin.numeric <- function(x, weight = NULL, binwidth = 1, origin = NULL, right = TRUE) {
+# aam's new version, with indices__ property
+bin.numeric <- function(data, weight = NULL, binwidth = 1, origin = NULL, right = TRUE) {
   stopifnot(is.numeric(binwidth) && length(binwidth) == 1)
   stopifnot(is.null(origin) || (is.numeric(origin) && length(origin) == 1))
   stopifnot(is.flag(right))
 
-  if (length(na.omit(x)) == 0)  return(data.frame())
+  if (length(na.omit(data)) == 0)  return(data.frame())
+  
+  if (is.null(weight))  weight <- rep(1, length(data))
 
-  if (is.null(weight))  weight <- rep(1, length(x))
   weight[is.na(weight)] <- 0
-
+  
   if (is.null(origin)) {
-    breaks <- fullseq(range(x), binwidth, pad = TRUE)
+    breaks <- fullseq(range(data), binwidth, pad = TRUE)
   } else {
-    breaks <- seq(origin, max(range) + binwidth, binwidth)
+    breaks <- seq(origin, max(range(data)) + binwidth, binwidth)
   }
-
+  
   # Adapt break fuzziness from base::hist - this protects from floating
   # point rounding errors
   diddle <- 1e-07 * stats::median(diff(breaks))
@@ -161,23 +163,37 @@ bin.numeric <- function(x, weight = NULL, binwidth = 1, origin = NULL, right = T
     fuzz <- c(rep.int(-diddle, length(breaks) - 1), diddle)
   }
   fuzzybreaks <- sort(breaks) + fuzz
-
-  bins <- cut(x, fuzzybreaks, include.lowest = TRUE, right = right)
+  
+  bins <- cut(data, fuzzybreaks, include.lowest = TRUE, right = right)
   left <- breaks[-length(breaks)]
   right <- breaks[-1]
   x <- (left + right)/2
   width <- diff(breaks)
-
+  
   count <- as.numeric(tapply(weight, bins, sum, na.rm=TRUE))
   count[is.na(count)] <- 0
+
+  indices <- 0
+  #sizeTag <- paste0("/",length(data))
+  for (i in 1:length(levels(bins))){
+    if(length(which(bins==levels(bins)[i])) != 0){
+      # used to add a data count "1/nnn", as a crude way of matching data sets 
+      #indices[i] <- paste(which(bins==levels(bins)[i]), collapse=",")
+      indices[i] <- toJSON(which(bins==levels(bins)[i]))
+    }
+    else {
+      indices[i] <- "[]"
+    }
+  }
 
   results <- data.frame(
     count__ = count,
     x = x,
     xmin__ = x - width/2,
     xmax__ = x + width/2,
-    width__ = width
+    width__ = width,
+    indices__ = indices
   )
-
+  
   results
 }

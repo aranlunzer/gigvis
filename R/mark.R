@@ -13,11 +13,23 @@
 #' @export
 #' @keywords internal
 mark <- function(type, props, data = NULL) {
+  markprops <- props
+  if (exists("gvParms")) {
+    parms <- isolate(reactiveValuesToList(gvParms))
+    if (exists("gvScenarioParms")) {
+      for (p in ls(gvScenarioParms)) {
+        parms[[p]] <- gvScenarioParms[[p]]
+      }
+    }
+    markprops <- merge_props(props, props(sharedProvenance = toJSON(parms,collapse="")))
+    # markprops <- merge_props(props, props(sharedProvenance = toJSON(gvParms,collapse="")))
+    # if gvParms goes back to being non-reactive
+  } 
   m <- structure(
     compact(list(
       type = type,
-      data = as.pipeline(data),
-      props = props
+      data =   as.pipeline(data),
+      props = markprops
     )),
     class = c(paste0("mark_", type), "mark", "branch")
   )

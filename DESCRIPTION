@@ -1,9 +1,9 @@
 Package: ggvis
 Title: Interactive grammar of graphics
-Description: gigivs implements a interactive grammar of graphics, taking the
+Description: (ael updated) gigivs implements a interactive grammar of graphics, taking the
     best parts of ggplot2, combining them with shiny's reactive framework and
     drawing web graphics using vega.
-Version: 0.0.99
+Version: 0.0.99.1
 Author: RStudio, Inc.
 Maintainer: Winston Chang <winston@rstudio.com>
 Depends:
@@ -25,6 +25,7 @@ Collate:
     'full_seq.R'
     'ggvis.R'
     'guess.R'
+    'lively_gigvis.R'
     'mark.R'
     'marks.R'
     'pipe.R'

@@ -107,7 +107,8 @@ constant_vars.split_df <- function(data) {
 pipe_id.transform <- function(x, props) {
   # Hash the transform's settings, as well as props, since the props can affect
   # the result (e.g., transform_bin's output depends on the x mapping)
-  paste(transform_type(x), digest(list(x, props), algo = "crc32"), sep = "_")
+  #paste(transform_type(x), digest(list(x, props), algo = "crc32"), sep = "_")  original
+  paste0(transform_type(x), "/", digest(list(x, props), algo = "crc32"), "/")
 }
 
 # Returns a string representing the transform type. For example, if it has
