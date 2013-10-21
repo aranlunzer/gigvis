@@ -108,9 +108,9 @@ oneTimeInitShinyGgvis = function() {
     var chartId = message.chartId;
     var version = message.version;
     var name = message.name;
-    // before we started dealing with dynamic split dfs, message.value would be a 
+    // before we started dealing with dynamic split dfs, message.value would always be a 
     // one-element array holding a { name: n, values: valueArray } object.
-    // now that object could be...
+    // now that object could also be...
     //   { name: format: values: {children: } }  for a xxx_tree dataset
     //   { name: source: transform: }    for using the result of parsing a xxx_tree
     var dataSpec = message.value[0];
@@ -132,8 +132,9 @@ if (debug) console.log("data", chartId, version, name);
           subDataSpec[name] = treeDef;
           chart.data(subDataSpec);
         } else {
+          var format = dataSpec.format;
           var subData = {};
-          subData[name] = values;
+          subData[name] = vg.data.read(values, format);
           chart.data(subData);
         }
         chart.update();
@@ -158,7 +159,7 @@ if (debug) console.log("data", chartId, version, name);
     // For each chart in the pendingCharts list, see if all the datasets with
     // the right version number have turned up yet.  If so, build the chart and
     // supply the data.
-if (debug) console.log(livelyPendingCharts, livelyPendingData);
+if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
     for (var chartId in livelyPendingCharts) {
       var pendingChartRecord = livelyPendingCharts[chartId];
       var version = pendingChartRecord.version;
@@ -196,7 +197,7 @@ if (debug) console.log(livelyPendingCharts, livelyPendingData);
       if (!dataSeparate) {
         chart.update();   // need to render once anyway
         if (movingItems(chart).length) {
-          chart.update({ props: "initial" });
+          chart.update({ props: "enter" });
           chart.update({ props: "update", /*items: movingItems(chart),*/ duration: 750 });
         }
       } else {
@@ -274,14 +275,9 @@ so then the question is how to send an update to a dataset on which another depe
         return matches;
       }
 
-      function draggableItems(chart) {
-        // ael: return a collection of vega-level items that have secondx, secondy props
-        return d3.select(chart._el).selectAll("svg.marks path").filter(function(d) { return d && d.dragx })[0].map(function(el) { return el.__data__ });
-      }
-
       function movingItems(chart) {
         // ael: return a collection of vega-level items that have initialx, initialy props
-        return d3.select(chart._el).selectAll("svg.marks path").filter(function(d) { return d && d.initialx })[0].map(function(el) { return el.__data__ });
+        return d3.select(chart._el).selectAll("svg.marks path").filter(function(d) { return d && d.datum && d.datum.data && d.datum.data.initialx })[0].map(function(el) { return el.__data__ });
       }
 
       function findAndSetScenarioMarks(chart) {

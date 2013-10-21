@@ -16,19 +16,17 @@ as.vega <- function(x, ...) {
 #' @rdname as.vega
 #' @param session a session object from shiny
 #' @param dynamic whether to generate dynamic or static spec
-as.vega.ggvis <- function(x, width = 600, height = 430, padding = NULL,
-                           session = NULL, dynamic = FALSE, ...) {
-  if (is.null(padding)) padding <- padding(10,30,20,30) # top, right, bottom, left
+as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
   
   nodes <- flatten(x, session = session)
   data_table <- extract_data(nodes)
   
   # keep a record of derived reactives, so we can discard them prior to refreshing the chart
-  all_reactives <- list()
+  #all_reactives <- list()
   data_table <- active_props(data_table, nodes)
   data_names <- ls(data_table, all.names = TRUE)
-  for (name in data_names)
-    all_reactives[[length(all_reactives)+1]] <- data_table[[name]]
+  #for (name in data_names)
+  #  all_reactives[[length(all_reactives)+1]] <- data_table[[name]]
   
   if (dynamic) {
     # Don't provide data now, just the name.
@@ -71,7 +69,7 @@ as.vega.ggvis <- function(x, width = 600, height = 430, padding = NULL,
     ggvis_opts = as.vega(opts)
   )
   
-  structure(spec, data_table = data_table, all_reactives = all_reactives)
+  structure(spec, data_table = data_table)
 }
 
 # Given a ggvis mark object and set of scales, output a vega mark object
@@ -88,27 +86,27 @@ as.vega.mark <- function(mark) {
     props$key <- NULL
   }
 
+  # ael: same for sharedProvenance (which we'll store in the mark's description), 
+  # though unlike for key there's no special handling
+  # preventing sharedProvenance from being stored with the .update tag
+  sharedProvenance <- props$sharedProvenance.update
+  if (!is.null(sharedProvenance)) {
+    props$sharedProvenance.update <- NULL
+  }
+
   check_mark_props(mark, names(props))
 
   # ael: fiddle with the properties, adding "highlight" for brushing and "initial"
   # for smooth changes.
-  # if there is a sharedProvenance property, don't push it through to
-  # the items but store it in the mark's description.
-  baseprops <- props
-  vegaprops <- as.vega(baseprops)   # might include sharedProvenance
-  markprops <- list()
-  markprops$update <- vegaprops[names(vegaprops)!="sharedProvenance"]
+  markprops <- as.vega(props)   # includes some or all of update, enter, exit, hover
   if (mark$type == "symbol" || mark$type == "rect") {
-    markprops$highlight <- as.vega(props(fill="red"))
-    markprops$scenarioHighlight <- as.vega(props(fill="green", fillOpacity=0.75))
+    # as.vega.ggvis_props() defaults to attaching properties to "update"
+    markprops$highlight <- as.vega(props(fill:="red"))$update
+    markprops$scenarioHighlight <- as.vega(props(fill:="green", fillOpacity:=0.75))$update
   }
-  props_list <- as.list(baseprops)
-  if (!is.null(props_list$initialx)) {
-    markprops$initial <- as.vega(props(x=prop(quote(initialx), scale="x"),
-                                       y=prop(quote(initialy), scale="y"),
-                                       opacity=0.25))
-  } else if (mark$type == "symbol" || mark$type == "line") {
-    markprops$initial <- as.vega(props(opacity=0.25))
+  # ael: provide a default faded "enter" on symbol and line marks
+  if (is.null(markprops$enter) && (mark$type == "symbol" || mark$type == "line")) {
+    markprops$enter <- as.vega(props(opacity:=0.25))$update
   }
   
   # HW: It seems less than ideal to have to inspect the data here, but
@@ -129,8 +127,8 @@ as.vega.mark <- function(mark) {
   } else {
     froms <- list(data = mark$pipeline_id)
     description <- list()
-    if (!is.null(vegaprops$sharedProvenance)) {
-      description <- as.list(fromJSON(vegaprops$sharedProvenance$value))
+    if (!is.null(sharedProvenance)) {
+      description <- as.list(fromJSON(sharedProvenance$value))
     }
     if (!is.null(mark$datasource_id)) {
       description$datasource <- mark$datasource_id

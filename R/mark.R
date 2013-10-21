@@ -21,7 +21,7 @@ mark <- function(type, props, data = NULL) {
         parms[[p]] <- gvScenarioParms[[p]]
       }
     }
-    markprops <- merge_props(props, props(sharedProvenance = toJSON(parms,collapse="")))
+    markprops <- merge_props(props, props(sharedProvenance := toJSON(parms,collapse="")))
     # markprops <- merge_props(props, props(sharedProvenance = toJSON(gvParms,collapse="")))
     # if gvParms goes back to being non-reactive
   } 

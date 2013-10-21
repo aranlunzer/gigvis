@@ -141,7 +141,7 @@ bin.numeric <- function(data, weight = NULL, binwidth = 1, origin = NULL, right 
   stopifnot(is.numeric(binwidth) && length(binwidth) == 1)
   stopifnot(is.null(origin) || (is.numeric(origin) && length(origin) == 1))
   stopifnot(is.flag(right))
-
+  
   if (length(na.omit(data)) == 0)  return(data.frame())
   
   if (is.null(weight))  weight <- rep(1, length(data))

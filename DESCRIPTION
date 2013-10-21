@@ -25,7 +25,7 @@ Collate:
     'full_seq.R'
     'ggvis.R'
     'guess.R'
-    'lively_gigvis.R'
+    'lively_ggvis.R'
     'mark.R'
     'marks.R'
     'pipe.R'

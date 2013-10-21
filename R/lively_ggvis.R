@@ -42,9 +42,8 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
   data_table[[data_id]] <- r_data  # users of data_table expect reactives
 
   # inline version of a degenerate as.vega.mark
-  markprops <- list()
-  markprops$update <- as.vega(props(backgroundColor="none"))
-  markprops$highlight <- as.vega(props(backgroundColor="red"))
+  markprops <- as.vega(props(backgroundColor:="none"))
+  markprops$highlight <- as.vega(props(backgroundColor:="red"))$update
   #markprops$scenarioHighlight <- as.vega(props(fill="green", fillOpacity=0.3, stroke="black"))
   
   froms <- list()
@@ -72,7 +71,7 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
     padding = as.vega(padding)
   )
   
-  structure(spec, data_table = data_table)
+  structure(spec, data_table=data_table)
 }
 
 view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, renderer = "svg") {
@@ -140,9 +139,12 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
     # a static Vega spec and send that to the browser.
     obs <- observe({
       if (!is.null(r_gv())) {
+        spec <- NULL
+        all_rs <- trackReactivesDuring(function() {
+          spec <<- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
+        })
+        all_chart_reactives[[id]] <<- all_rs
         
-        spec <- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
-
         session$sendCustomMessage("ggvis_lively_vega_spec", list(
           chartId = id,
           spec = spec,
@@ -152,9 +154,9 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
       }
     }, label="obs_whole_spec")
     
-    session$onSessionEnded(function() {
-      obs$suspend()
-    })
+#     session$onSessionEnded(function() {
+#       obs$suspend()
+#     })
     
   } else {
     # Sending spec and data separately.
@@ -174,8 +176,11 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
         gvChartVersions[[id]] <<- gvChartVersions[[id]] + 1
         if (lg_debug) logToFile(paste0(
           id, " version ", as.character(gvChartVersions[[id]]), " vega spec"))
-        spec_struct <- as.vega(r_gv(), session = session, dynamic = FALSE)
-        all_rs <- attr(spec_struct, "all_reactives")
+        spec_struct <- NULL
+        all_rs <- trackReactivesDuring(function() {
+          spec_struct <<- as.vega(r_gv(), session = session, dynamic = FALSE)
+        })
+        #all_rs <- attr(spec_struct, "all_reactives")
         if (lg_debug) logToFile(paste0(
           "all_chart_reactives for ", id, ": ", as.character(length(all_rs))))
         all_chart_reactives[[id]] <<- all_rs
@@ -204,9 +209,9 @@ lively_observe_spec <- function(r_spec, id, session, renderer) {
       ))
     }
   }, label="obs_spec")
-  session$onSessionEnded(function() {
-    obs$suspend()
-  })
+#   session$onSessionEnded(function() {
+#     obs$suspend()
+#   })
 }
 
 # Create observers for the data objects attached to a reactive vega spec
@@ -298,9 +303,9 @@ lively_observe_data <- function(r_spec, id, session) {
               }
             }
           }, label="obs_single_data")
-          session$onSessionEnded(function() {
-            obs$suspend()
-          })
+#           session$onSessionEnded(function() {
+#             obs$suspend()
+#           })
           
           # Track this data observer
           data_observers[[length(data_observers) + 1]] <<- obs
@@ -309,7 +314,7 @@ lively_observe_data <- function(r_spec, id, session) {
     }
     all_chart_observers[[id]] <<- data_observers 
   }, label="obs_all_data")
-  session$onSessionEnded(function() {
-    obs_all$suspend()
-  })
+#   session$onSessionEnded(function() {
+#     obs_all$suspend()
+#   })
 }

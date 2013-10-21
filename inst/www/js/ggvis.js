@@ -34,6 +34,7 @@ GgvisPlot.prototype = {
   // * mouseout: A callback for the "mouseout" event
   // * hovertime: Number of milliseconds for a hover transition
   parseSpec: function(spec, opts) {
+
     var self = this;
     self.spec = spec;
     self.initialized = false;
