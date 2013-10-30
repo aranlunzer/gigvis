@@ -26,6 +26,7 @@ Collate:
     'ggvis.R'
     'guess.R'
     'lively_ggvis.R'
+    'lively_utils.R'
     'mark.R'
     'marks.R'
     'pipe.R'

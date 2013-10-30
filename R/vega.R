@@ -21,12 +21,8 @@ as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
   nodes <- flatten(x, session = session)
   data_table <- extract_data(nodes)
   
-  # keep a record of derived reactives, so we can discard them prior to refreshing the chart
-  #all_reactives <- list()
   data_table <- active_props(data_table, nodes)
   data_names <- ls(data_table, all.names = TRUE)
-  #for (name in data_names)
-  #  all_reactives[[length(all_reactives)+1]] <- data_table[[name]]
   
   if (dynamic) {
     # Don't provide data now, just the name.
@@ -53,7 +49,12 @@ as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
   }
   
   scales <- add_default_scales(x, nodes, data_table)
+  # ael: allow an axis to be suppressed by setting its title to "-"
   axes <- add_default_axes(x$axes, scales)
+  axes <- axes[which(vapply(axes, function(a) a$title!="-", logical(1)))]
+  if (length(axes)==0) { axesVega <- NA }
+  else { axesVega <- lapply(axes, as.vega) }
+
   legends <- add_default_legends(x$legends, scales)
   opts <- add_default_opts(x$opts[[1]] %||% opts())
 
@@ -64,7 +65,7 @@ as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
     width = opts$width,
     height = opts$height,
     legends = lapply(legends, as.vega),
-    axes = lapply(axes, as.vega),
+    axes = axesVega,
     padding = as.vega(opts$padding),
     ggvis_opts = as.vega(opts)
   )

@@ -74,7 +74,7 @@ parse_components <- function(..., drop_named = FALSE) {
   names(args) <- NULL
 
   types <- vapply(args, component_type, character(1))
-  
+
   components <- split(args, types)
   components$props <- Reduce(merge_props, components$props)
   if (length(components$data) > 0) {

@@ -2,8 +2,6 @@
 
 # a ggvis(...) is basically a ggvis_node(...) - a structure with classes "ggvis", "ggvis_node"
 
-lg_debug = TRUE   # a bunch of logToFile() reports
-
 # this is the equivalent of mark_xxxx
 lively_table <- function(data, xProp, yProp) {
   structure(
@@ -132,6 +130,7 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
   lively_separate_data = TRUE     # but see comments below for what this now means
   
   if (!lively_separate_data) {
+    # CURRENTLY NOT USED
     # In this case we're sending the browser complete specs with data included.
     # For ease of chart reconfiguration, we allow the reactive gv definition to
     # deliver a NULL value.
@@ -174,14 +173,14 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
     r_spec <- reactive({
       if (!is.null(r_gv())) {
         gvChartVersions[[id]] <<- gvChartVersions[[id]] + 1
-        if (lg_debug) logToFile(paste0(
+        debugLog(paste0(
           id, " version ", as.character(gvChartVersions[[id]]), " vega spec"))
         spec_struct <- NULL
         all_rs <- trackReactivesDuring(function() {
           spec_struct <<- as.vega(r_gv(), session = session, dynamic = FALSE)
         })
         #all_rs <- attr(spec_struct, "all_reactives")
-        if (lg_debug) logToFile(paste0(
+        debugLog(paste0(
           "all_chart_reactives for ", id, ": ", as.character(length(all_rs))))
         all_chart_reactives[[id]] <<- all_rs
         
@@ -195,10 +194,10 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
 
 # Create an observer for a reactive vega spec
 lively_observe_spec <- function(r_spec, id, session, renderer) {
-  if (lg_debug) logToFile(paste0(id, " setup lively_observe_spec"))
+  debugLog(paste0(id, " setup lively_observe_spec"))
   obs <- observe({
     if (!is.null(r_spec())) {
-      if (lg_debug) logToFile(paste0(id, " non-null lively_observe_spec"))
+      debugLog(paste0(id, " non-null lively_observe_spec"))
       session$sendCustomMessage("ggvis_lively_vega_spec", list(
         chartId = id,
         version = gvChartVersions[[id]],
@@ -218,7 +217,7 @@ lively_observe_spec <- function(r_spec, id, session, renderer) {
 lively_observe_data <- function(r_spec, id, session) {
   # A list for keeping track of each data observer
   # data_observers <- list()  we no longer have to maintain a list between updates
-  if (lg_debug) logToFile(paste0(id, " setup lively_observe_data"))
+  debugLog(paste0(id, " setup lively_observe_data"))
           
   obs_all <- observe({
     # Observing the reactive r_spec.
@@ -226,14 +225,14 @@ lively_observe_data <- function(r_spec, id, session) {
     # If data_observers list is nonempty, that means there are old observers
     # which need to be suspended before we create new ones.
 #     for (obs in data_observers) {
-#       if (lg_debug) logToFile(paste0(id, " suspending observer"))
+#       debugLog(paste0(id, " suspending observer"))
 #       obs$suspend()
 #     }
 #     data_observers <<- list()
     data_observers <- list()  # just to gather the observers set up this time through
     
     if (!is.null(r_spec())) {
-      if (lg_debug) logToFile(paste0(id, " non-null lively_observe_data"))
+      debugLog(paste0(id, " non-null lively_observe_data"))
       data_table <- attr(r_spec(), "data_table")
       data_names <- ls(data_table, all.names = TRUE)
       
@@ -253,21 +252,21 @@ lively_observe_data <- function(r_spec, id, session) {
 
           obs <- observe({
             # watch for changes in the appropriate reactive within the data table
-            if (lg_debug) logToFile(paste0("observing data: ", data_name))
+            debugLog(paste0("observing data: ", data_name))
             data_reactive <- get(data_name, data_table)
-            if (lg_debug) logToFile(paste0("get: ", data_name, " for ", as.character(id), " version ", as.character(version))) 
+            debugLog(paste0("get: ", data_name, " for ", as.character(id), " version ", as.character(version))) 
             ok <- TRUE
             tryCatch({
               data_content <- data_reactive()  # make sure we look, whether first time or not
             }, error = function(e) {
-              logToFile("caught error")
+              debugLog("caught error")
               ok <<- FALSE
               })
             if (ok && !is.null(data_content)) {  # ael - in Lively an error will return NULL
               if (firstTime) {
                 # skip this once
                 firstTime <<- FALSE
-                if (lg_debug) logToFile("first time") 
+                debugLog("first time") 
               } else {
                 # split_df handling is different
                 if (!is.split_df(data_content)) {

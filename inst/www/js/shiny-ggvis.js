@@ -9,9 +9,6 @@ oneTimeInitShinyGgvis = function() {
 
   var debug = true;
 
-  var pendingData = {};
-  var allPlots = {};
-  
   var livelyPendingData = {};
   var livelyPendingCharts = {};
   var livelyRenderedCharts = {};
@@ -174,6 +171,7 @@ if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
   }
 
   function buildLivelyChart(spec, chartId, version, renderer, dataSeparate) {
+    // NB: still using the old way of building charts.  ggvis has some new stuff.
     // NB: this is asynchronous.  On return, the chart won't yet have been built.
 
     vg.parse.spec(spec, function (chartBuilder) {
@@ -470,9 +468,6 @@ var chartLeft = rect.left + padding.left - worldRect.left();
 
   refreshShinyGgvis = function() {
     // The user is throwing away the existing chart(s) and building anew. 
-    pendingData = {};
-    allPlots = {};
-    
     livelyPendingData = {};
     livelyPendingCharts = {};
     livelyRenderedCharts = {};

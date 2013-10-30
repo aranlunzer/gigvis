@@ -28,10 +28,16 @@
 datasource <- function(data, name = deparse2(substitute(data))) {
   if (is.null(data)) return(NULL)
 
+  if (isTRUE(getOption('shiny.withlively'))) {
+    hash <- "00"
+  } else {
+    hash <- digest(data)
+  }
+    
   structure(list(
     env = environment(),
     name = name,
-    hash = digest(data)
+    hash = hash
   ), class = c(source_class(data), "datasource", "pipe"))
 }
 
@@ -57,7 +63,8 @@ pipe_id.datasource <- function(x, props) {
   if (is.null(props)) {
     paste0(x$name, "/", x$hash, "/")
   } else {
-    paste0(x$name, "/", x$hash, ":", digest(props, algo = "crc32"), "/")
+    propStr <- paste(vapply(props, function(p) as.character(p$value), character(1)), collapse="")
+    paste0(x$name, "/", x$hash, ":", propStr, "/")
   }
 }
 
