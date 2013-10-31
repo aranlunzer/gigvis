@@ -33,7 +33,7 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
   if (is.null(padding)) padding <- padding() # top, right, bottom, left
   # expecting the x argument to be a ggvis_table structure with a single
   # element, which is a lively_table_mark structure.
-  r_data <- reactive( x$data()[setdiff(names(x$data()), c("initialx","initialy"))] )
+  r_data <- reactive( x$data()[setdiff(names(x$data()), c("chartx", "charty", "initialx","initialy"))] )
   data_id <- paste0(x$dataname, "_table")  # , digest(x$data))
   datasets <- as.vega(isolate(r_data()), data_id)
   data_table <- new.env(parent = emptyenv())
