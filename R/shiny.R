@@ -19,7 +19,7 @@
 #' }
 #' @examples
 #' \dontrun{
-#' # In server.r
+#' ## In server.r
 #' gv <- reactive({
 #'   ggvis(mtcars, props(x = ~wt, y = ~mpg),
 #'     mark_symbol(),
@@ -31,6 +31,10 @@
 #' })
 #'
 #' output$controls <- renderControls(gv)
+#'
+#'
+#' ## In ui.r
+#' ggvisControlOutput("controls")
 #' }
 #' @name shiny
 NULL
@@ -67,11 +71,11 @@ ggvis_output <- function(plot_id, shiny = TRUE) {
         tags$script(src = "ggvis/lib/QuadTree.js"),
         tags$script(src = "ggvis/js/ggvis.js"),
         tags$script(src = "ggvis/js/shiny-ggvis.js"),
-        tags$link(rel = "stylesheet", type = "text/css",
-                  href = "ggvis/css/ggvis.css"),
         tags$link(rel = "stylesheet",
                   type = "text/css",
-                  href = "ggvis/lib/jquery-ui/css/smoothness/jquery-ui-1.10.3.custom.css")
+                  href = "ggvis/lib/jquery-ui/css/smoothness/jquery-ui-1.10.3.custom.css"),
+        tags$link(rel = "stylesheet", type = "text/css",
+                  href = "ggvis/css/ggvis.css")
       )),
       container
     )
@@ -164,7 +168,10 @@ renderControls <- function(r_gv, session = NULL) {
     if (empty(controls)) {
       NULL
     } else {
-      tagList(controls)
+      # Wrap each control in a div, for layout purposes
+      tagList(
+        lapply(controls, function(x) div(x, class = "ggvis-input-container"))
+      )
     }
   })
 }
@@ -272,4 +279,32 @@ ggvisControlGroup <- function(plot_id) {
       )
     )
   )
+}
+
+#' Create a ggvis control output element in UI
+#'
+#' This is effectively the same as \code{\link{shiny::uiOutput}}, except that
+#' on the client side it may call some plot resizing functions after new
+#' controls are drawn.
+#'
+#' \code{ggvisControlOutput} is intended to be used with
+#' \code{\link{renderControls}} on the server side.
+#'
+#' @param outputId The output variable to read the value from.
+#' @param plotId An optional plot ID or vector of plot IDs. The plots will
+#'   have their .onControlOutput functions called after the controls are drawn.
+#' @examples
+#' htmlOutput("summary")
+#' @export
+ggvisControlOutput <- function(outputId, plotId = NULL) {
+  if (is.null(plotId)) {
+    div(id = outputId, class = "ggvis-control-output")
+
+  } else {
+    div(
+      id = outputId,
+      class = "ggvis-control-output",
+      `data-plot-id` = paste(plotId, collapse = " ")
+    )
+  }
 }

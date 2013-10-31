@@ -1,19 +1,9 @@
 #' Set options for a ggvis plot
 #'
-#' @param width,height Width and height of plot, in pixels. Default is 400x400.
-#' @param auto_width Should the plot be resized according to the window size?
-#'   This can be FALSE, TRUE, or a pair of numbers like \code{c(200, 600)}. If
-#'   FALSE, the plot size will be set to \code{height} and \code{width},
-#'   regardless of window size. If TRUE, the plot width will be sized to
-#'   the width of the window. If it is a pair of numbers like
-#'   \code{c(200, 600)}, then the plot width will be sized to the window width,
-#'   keeping within the range of the pair of numbers. The default value is
-#'   \code{c(200, 600)}, or the value of \code{getOption("ggvis.auto_width")},
-#'   if it is set.
-#' @param keep_aspect If the plot is auto-sized, should the aspect ratio be
-#'   preserved? (This is only useful when \code{auto_width} is \code{TRUE}.)
-#'   The default value is \code{FALSE}, or the value of
-#'   \code{getOption("ggvis.keep_aspect")}, if it is set.
+#' @param width,height Width and height of plot, in pixels. Default is 600x400.
+#' @param keep_aspect Should the aspect ratio be preserved? The default value
+#'   is \code{FALSE}, or the value of \code{getOption("ggvis.keep_aspect")}, if
+#'   it is set.
 #' @param resizable If TRUE, allow the user to resize the plot.
 #'   The default value is \code{TRUE}, or the value of
 #'   \code{getOption("ggvis.resizable")}, if it is set.
@@ -30,14 +20,13 @@
 #'   opts(width = 300, height = 200, padding = padding(10, 10, 10, 10)))
 #'
 #' @export
-opts <- function(width = NULL, height = NULL, auto_width = NULL,
-                 keep_aspect = NULL, resizable = NULL, padding = NULL,
-                 duration = NULL, renderer = NULL) {
+opts <- function(width = NULL, height = NULL, keep_aspect = NULL,
+                 resizable = NULL, padding = NULL, duration = NULL,
+                 renderer = NULL) {
   structure(
     compact(list(
       width = width,
       height = height,
-      auto_width = auto_width,
       keep_aspect = keep_aspect,
       resizable = resizable,
       padding = padding,
@@ -55,9 +44,8 @@ as.vega.ggvis_opts <- function(x) x
 default_opts <- function() {
   structure(
     list(
-      width = 400,
+      width = 600,
       height = 400,
-      auto_width = getOption("ggvis.auto_width", c(200, 600)),
       keep_aspect = getOption("ggvis.keep_aspect", FALSE),
       resizable = getOption("ggvis.resizable", TRUE),
       padding = padding(),

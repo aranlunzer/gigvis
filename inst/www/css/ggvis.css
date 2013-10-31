@@ -5,6 +5,15 @@
   float: left;
 }
 
+/* Containers for plots shouldn't allow overflow */
+.ggvis-output-container {
+  overflow: hidden;
+}
+
+.ggvis-control-output {
+  overflow: hidden;
+}
+
 /* Outline box when resizing a plot */
 .ui-resizable-helper {
   border: 1px dotted #999;
@@ -26,27 +35,40 @@
 
 /* Sidebar that goes to the bottom on small devices */
 .sidebar-bottom {
-    float:left;
-    margin-left:0;
+  float:left;
+  margin-left:0;
 }
 
 /* Main content that goes to top on small devices */
 .main-top {
-    float:right !important;
-    margin-left:auto;
+  float:right !important;
+  margin-left:auto;
 }
 
 @media (max-width: 767px) {
-    .sidebar-bottom {
-        display: inline-block;
-        margin-top: 20px;
-        width: 100%;
-    }
+  /* Bootstrap-responsive adds padding, but we don't want it */
+  body {
+    padding-right: 0px;
+    padding-left: 0px;
+  }
 
-    .main-top {
-        float:none !important;
-        margin-left:0;
-    }
+  .sidebar-bottom {
+    display: inline-block;
+    margin-top: 20px;
+    width: 100%;
+  }
+
+  .main-top {
+    float:none !important;
+    margin-left:0;
+  }
+
+  .ggvis-input-container {
+    width: 45%;
+    padding-left: 2.5%;
+    padding-right: 2.5%;
+    float: left;
+  }
 }
 
 /* For items in a dropdown menu that aren't links, make sure they display

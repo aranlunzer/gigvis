@@ -30,6 +30,42 @@ oneTimeInitShinyGgvis = function() {
   });
   Shiny.outputBindings.register(ggvisOutputBinding, 'shiny.ggvisOutput');
 
+  // A customized version of Shiny's htmlOutputBinding which can call a plot's
+  // onControlOutput function when outputs are updated drawn.
+  var ggvisControlOutputBinding = new Shiny.OutputBinding();
+  $.extend(ggvisControlOutputBinding, {
+    find: function(scope) {
+      return $(scope).find('.ggvis-control-output');
+    },
+    onValueError: function(el, err) {
+      Shiny.unbindAll(el);
+      this.renderError(el, err);
+    },
+    renderValue: function(el, data) {
+      var $el = $(el);
+
+      Shiny.unbindAll(el);
+      $el.html(data);
+      Shiny.initializeInputs(el);
+      Shiny.bindAll(el);
+
+      // Run onControlOutput for each plot listed in data-plot-id
+      var plotId = $el.data('plot-id');
+      if (plotId !== undefined) {
+        var ids = plotId.split(/ +/);
+
+        for (var i = 0; i < ids.length; i++) {
+          var plot = ggvis.plots[ids[i]];
+          if (plot && plot.onControlOutput) {
+            plot.onControlOutput();
+          }
+        }
+      }
+    }
+  });
+  Shiny.outputBindings.register(ggvisControlOutputBinding, 'shiny.ggvisControlOutput');
+
+
   // Receive data object and dispatch to appropriate vega object
   Shiny.addCustomMessageHandler("ggvis_data", function(message) {
     var plotId = message.plotId;
@@ -49,7 +85,7 @@ oneTimeInitShinyGgvis = function() {
       // If all data objects have been received, update
       if (plot.dataReady()) {
         if (!plot.initialized) {
-          plot.initialUpdate()
+          plot.initialUpdate();
         } else {
           plot.chart.update({ duration: plot.opts.duration });
         }
@@ -429,11 +465,12 @@ var chartLeft = rect.left + padding.left - worldRect.left();
         }
       );
     };
-  }
+  };
 
   // Returns a mouseout handler with plotId
   var createMouseOutHandler = function(plotId) {
     return function(event, item) {
+      /* jshint unused: false */
       Shiny.onInputChange("ggvis_hover",
         {
           plot_id: plotId,
@@ -443,7 +480,7 @@ var chartLeft = rect.left + padding.left - worldRect.left();
         }
       );
     };
-  }
+  };
 
   // Tooltip message handler
   Shiny.addCustomMessageHandler('ggvis_tooltip', function(data) {

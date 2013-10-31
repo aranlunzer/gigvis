@@ -65,9 +65,9 @@ view_static <- function(x,
     tags$script(src = "lib/QuadTree.js"),
     tags$script(src = "js/ggvis.js"),
     tags$link(rel = "stylesheet", type = "text/css",
-      href = "css/ggvis.css"),
+      href = "lib/jquery-ui/css/smoothness/jquery-ui-1.10.3.custom.css"),
     tags$link(rel = "stylesheet", type = "text/css",
-      href = "lib/jquery-ui/css/smoothness/jquery-ui-1.10.3.custom.css")
+      href = "css/ggvis.css")
   )
 
   body <- tagList(
@@ -87,7 +87,7 @@ view_static <- function(x,
   writeLines(whisker.render(template, list(head = head, body = body)),
     con = html_file)
   
-  if (launch) view_plot(html_file, 600)
+  if (launch) view_plot(html_file, 350)
   invisible(html_file)
 }
 
@@ -143,30 +143,43 @@ view_dynamic <- function(x,
     stop("renderer must be 'canvas' or 'svg'")
   
   plot_id <- "plot1"
-  
-  # Make our resources available
-  ui <- sidebarBottomPage(
-    sidebarBottomPanel(
-      uiOutput("ggvis_ui")
-    ),
-    mainTopPanel(
-      ggvis_output(plot_id, shiny = TRUE)
+
+  # Find number of control elements for the plot
+  n_controls <- length(controls(x))
+
+  if (n_controls == 0) {
+    ui <- basicPage(ggvis_output(plot_id, shiny = TRUE))
+
+  } else {
+    ui <- sidebarBottomPage(
+      sidebarBottomPanel(
+        ggvisControlOutput("ggvis_controls", plot_id)
+      ),
+      mainTopPanel(
+        ggvis_output(plot_id, shiny = TRUE)
+      )
     )
-  )
-  
+  }
+
   server <- function(input, output, session) {
     r_gv <- reactive(x)
     # Set up observers for the spec and the data
     observe_ggvis(r_gv, plot_id, session, renderer)
     
-    # User interface elements (in the sidebar)
-    output$ggvis_ui <- renderControls(r_gv, session)
+    # User interface elements (in the sidebar). These must be added dynamically
+    # (instead of being rendered statically in ui) because they are unique to
+    # each session.
+    output$ggvis_controls <- renderControls(r_gv, session)
   }
   
   app <- list(ui = ui, server = server)
   if (launch) {
+    # Request 70 vertical pixels for each pair of control items, since there are
+    # two on a row.
+    height <- 350 + 70 * ceiling(n_controls / 2)
+
     suppressMessages(
-      runApp(app, launch.browser = function(url) view_plot(url, 600))
+      runApp(app, launch.browser = function(url) view_plot(url, height))
     )
   } else {
     app

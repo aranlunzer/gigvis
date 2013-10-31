@@ -2,26 +2,16 @@
 \alias{opts}
 \title{Set options for a ggvis plot}
 \usage{
-  opts(width = NULL, height = NULL, auto_width = NULL,
-    keep_aspect = NULL, resizable = NULL, padding = NULL,
-    duration = NULL, renderer = NULL)
+  opts(width = NULL, height = NULL, keep_aspect = NULL,
+    resizable = NULL, padding = NULL, duration = NULL,
+    renderer = NULL)
 }
 \arguments{
   \item{width,height}{Width and height of plot, in pixels.
-  Default is 400x400.}
+  Default is 600x400.}
 
-  \item{auto_width}{Should the plot be resized according to
-  the window size? If FALSE, the plot size will be set to
-  \code{height} and \code{width}, regardless of window
-  size. If TRUE, the plot size will be sized to the window
-  or to \code{width} and \code{height}, whichever is
-  smaller.  The default value is \code{TRUE}, or the value
-  of \code{getOption("ggvis.auto_width")}, if it is set.}
-
-  \item{keep_aspect}{If the plot is auto-sized, should the
-  aspect ratio be preserved? (This is only useful when
-  \code{auto_width} is \code{TRUE}.)  The default value is
-  \code{FALSE}, or the value of
+  \item{keep_aspect}{Should the aspect ratio be preserved?
+  The default value is \code{FALSE}, or the value of
   \code{getOption("ggvis.keep_aspect")}, if it is set.}
 
   \item{resizable}{If TRUE, allow the user to resize the
