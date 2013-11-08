@@ -148,10 +148,13 @@ bin.numeric <- function(data, weight = NULL, binwidth = 1, origin = NULL, right 
 
   weight[is.na(weight)] <- 0
   
-  if (is.null(origin)) {
+  # ael - bins go from origin to the max of the data.  if the origin is greater than
+  # the max, ignore it.
+  datamax <- max(data)
+  if (is.null(origin) || origin > datamax) {
     breaks <- fullseq(range(data), binwidth, pad = TRUE)
   } else {
-    breaks <- seq(origin, max(range(data)) + binwidth, binwidth)
+    breaks <- seq(origin, datamax + binwidth, binwidth)
   }
   
   # Adapt break fuzziness from base::hist - this protects from floating

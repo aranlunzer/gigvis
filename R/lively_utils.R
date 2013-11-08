@@ -58,17 +58,94 @@ writeMemoryProfile <- function() {
   write.table(lsos(pos=livelyR_env), file="memory_profile", append=TRUE)
 }
 
-predictOnLine <- function(trialdata, datax){
+#' Pretending we're modeling using our own lines
+#' Instead of using a model to make a line, we create our own arbitrarily and then want to know things about it,
+#' such as residuals and R^2
+
+predictOnLine <- function(trialdata, realdata, giveme="vert"){
   slope <- (trialdata$y[1] -trialdata$y[2])/(trialdata$x[1] -trialdata$x[2])
   intercept <- trialdata$y[1] - slope*trialdata$x[1]
-  y <- slope*datax + intercept
-  return(data.frame(datax, y))
+  if (giveme=="vert" || (giveme=="perp" && slope==0)){
+    y <- slope*realdata$x + intercept
+    return(data.frame(x=realdata$x, y=y))
+  }else if (giveme=="horiz"){
+    x <- (realdata$y-intercept)/slope
+    return(data.frame(x=x, y=realdata$y))
+  }else if (giveme=="perp"){
+    slopePerp <- -(1/slope)
+    interceptPerp <- realdata$y - slopePerp*realdata$x
+    xAns <- (interceptPerp-intercept)/(slope-slopePerp)
+    yAns <- slopePerp*xAns + interceptPerp
+    return(data.frame(x=xAns, y=yAns))
+    #     v <- c(trialdata$y[2]-trialdata$y[1], -(trialdata$x[2]-trialdata$x[1]))
+    #     r <- c(trialdata$x[1]-realdata$x, trialdata$y[1]-realdata$y)
+  } else {
+    print("specify vert, horiz or perp")
+  }
 }
+
 rsquared <- function(realdata, trialdata){
   ssTot <- sum((realdata$y-mean(realdata$y))^2)
-  ssRes <- sum((realdata$y-predictOnLine(trialdata, realdata$x)$y)^2)
+  ssRes <- sum((realdata$y-predictOnLine(trialdata, realdata)$y)^2)
   return(round(1-ssRes/ssTot, digits=3))
 }
+
+resLines <- function(trialdata, realdata, giveme="vert"){
+  resdf <- NULL
+  resdf$x <- NULL
+  resdf$y <- NULL
+  predictions <- predictOnLine(trialdata, realdata, giveme)
+  for(i in 1:dim(realdata)[1]){
+    resdf$x <- c(resdf$x, realdata$x[i], predictions$x[i])
+    resdf$y <- c(resdf$y, realdata$y[i], predictions$y[i])
+  }
+  return(data.frame(resdf))
+}
+
+# ael
+resLinesInChartDomain <- function(trialdata, realdata, giveme="vert") {
+  if (is.null(trialdata) || is.null(realdata)) return(NULL);
+  tempReal <- data.frame(x=realdata$chartx, y=realdata$charty)
+  tempTrial <- data.frame(x=trialdata$chartx, y=trialdata$charty)
+  res <- setNames(resLines(tempTrial, tempReal, giveme), c("chartx", "charty"))
+  res$item <- gl(nrow(realdata),2)
+  sluice(by_group(item), props(), res)    # by_group expects a props 
+}
+
+lmLine <- function(realdata, xProp, yProp) {
+  # provide a line of data$yProp~data$xProp from x=0 to x=max(x)*2
+  lmRes <- lm(realdata[[yProp]] ~ realdata[[xProp]])
+  slope <- lmRes$coefficients[[2]]
+  intercept <- lmRes$coefficients[[1]]
+  maxX <- max(realdata[[xProp]])
+  data.frame(chartx=c(0, maxX*2), charty=c(intercept, intercept+(slope*maxX*2)))
+}
+
+demingLine <- function(realdata, xProp, yProp) {
+  # provide a line from x=0 to x=max(x)*2
+  demingRes <- Deming(realdata[[xProp]], realdata[[yProp]])
+  slope <- demingRes[["Slope"]]
+  intercept <- demingRes[["Intercept"]]
+  maxX <- max(realdata[[xProp]])
+  data.frame(chartx=c(0, maxX*2), charty=c(intercept, intercept+(slope*maxX*2)))
+}
+
+extendTrialLine <- function(trialdata, maxX, maxY) {
+  # extrapolate to x=0 and x=max*2
+  if (trialdata$chartx[1] == trialdata$chartx[2])     # vertical line
+    return(data.frame(chartx=c(trialdata$chartx[1], trialdata$chartx[1]), charty=c(0, maxY*2)))
+  slope <- (trialdata$charty[1] -trialdata$charty[2])/(trialdata$chartx[1] -trialdata$chartx[2])
+  intercept <- trialdata$charty[1] - slope*trialdata$chartx[1]
+  yMax <- intercept + (slope * maxX * 2)
+  data.frame(chartx=c(0, maxX*2), charty=c(intercept, yMax))  
+}
+
+textResiduals <- function(realdata, trialdata){
+  ssRes <- sum((realdata$y-predictOnLine(trialdata, realdata)$y)^2)
+  scaled <- ssRes/(mean(realdata$y)^2)/nrow(realdata)
+  return(paste0(rep('|', min(round(scaled*200),120)),collapse=""))
+}
+# experimental hack for testing popup
 rsquaredRange <- function(realdata, trialdata) {
   ys <- 0:10
   xs <- vapply(ys, function(step) {
@@ -78,31 +155,13 @@ rsquaredRange <- function(realdata, trialdata) {
   }, numeric(1))  
   data.frame(x=xs, y=ys)
 }
-resLines <- function(trialdata, realdata){
-  # return a data frame with x and y
-  resdf <- NULL
-  resdf$x <- NULL
-  resdf$y <- NULL
-  predictions <- predictOnLine(trialdata, realdata$x)
-  for(i in 1:dim(realdata)[1]){
-    resdf$x <- c(resdf$x, realdata$x[i], realdata$x[i])
-    resdf$y <- c(resdf$y, realdata$y[i], predictions$y[i])
-  }
-  return(data.frame(resdf))
-}
-# ael... presumably there's a neater way of doing this
-resLinesInChartDomain <- function(trialdata, realdata) {
-  if (is.null(trialdata) || is.null(realdata)) return(NULL);
-  tempReal <- data.frame(x=realdata$chartx, y=realdata$charty)
-  tempTrial <- data.frame(x=trialdata$chartx, y=trialdata$charty)
-  res <- setNames(resLines(tempTrial,tempReal), c("chartx", "charty"))
-  res$item <- gl(nrow(realdata),2)
-  sluice(by_group(item), props(x=~x,y=~y), res)
-}
-textResiduals <- function(realdata, trialdata){
-  ssRes <- sum((realdata$y-predictOnLine(trialdata, realdata$x)$y)^2)
-  scaled <- ssRes/(mean(realdata$y)^2)/nrow(realdata)
-  return(paste0(rep('|', min(round(scaled*200),120)),collapse=""))
+
+switchedXorY <- function() {
+  switched <- 
+    (!is.null(gvHistory$xProp) && (gvHistory$xProp != isolate(gvParms$xProp))) ||
+    (!is.null(gvHistory$yProp) && (gvHistory$yProp != isolate(gvParms$yProp)))
+  debugLog(paste0("checking switched X or Y: ", switched))
+  switched
 }
 transitionDataFrame <- function(data, prevXProp, prevYProp, newXProp, newYProp) {
   # return a data frame with columns "initialx", "initialy" in which values in the 
@@ -110,7 +169,17 @@ transitionDataFrame <- function(data, prevXProp, prevYProp, newXProp, newYProp) 
   # relative positions on the newXProp scale; ditto for prevYProp.
   # if prevXProp is NULL (no history), or prev == new for both x and y, don't create
   # the "initial" columns.
+  # If newXProp or newYProp is an integer (used to initialise the chart), replace with
+  # the corresponding column name.
   df <- data
+  if (is.numeric(newXProp)) {
+    newXProp <- names(df)[[newXProp]]
+    gvParms$xProp <- newXProp
+  }
+  if (is.numeric(newYProp)) {
+    newYProp <- names(df)[[newYProp]]
+    gvParms$yProp <- newYProp
+  }
   if (switchedXorY()) {
     prevX <- prevXProp
     prevY <- prevYProp

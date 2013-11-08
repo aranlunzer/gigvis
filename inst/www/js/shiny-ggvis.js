@@ -7,7 +7,7 @@
 oneTimeInitShinyGgvis = function() {
   window.shinyGgvisInitialized = true;
 
-  var debug = true;
+  var debug = false;
 
   var livelyPendingData = {};
   var livelyPendingCharts = {};
@@ -149,6 +149,7 @@ oneTimeInitShinyGgvis = function() {
     var dataSpec = message.value[0];
     var values = dataSpec.values;   // may be undefined
 if (debug) console.log("data", chartId, version, name);
+//if (debug && name=="r_scenTrial3") console.log("data", chartId, version, name);
 
     // If the data spec belongs to a chart that's already rendered, and contains a
     // values array, send it in.
@@ -232,6 +233,7 @@ if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
         chart.update();   // need to render once anyway
         if (movingItems(chart).length) {
           chart.update({ props: "enter" });
+          setTimeout(function(){$world.setHandStyle(null)}, 250);
           chart.update({ props: "update", /*items: movingItems(chart),*/ duration: 750 });
         }
       } else {
@@ -350,6 +352,7 @@ so then the question is how to send an update to a dataset on which another depe
       chart.dragItem = null;
       chart.on("mouseover", (function(event, item) {
         if (this.dragItem) return;
+
         var scenarioMarks = findAndSetScenarioMarks(this);
         if (item.mark && item.mark.def.description && item.mark.def.description.scenario) {
           var touchedScenario = item.mark.def.description.scenario
@@ -382,21 +385,22 @@ so then the question is how to send an update to a dataset on which another depe
         if (this.dragItem) return;
         if (item.datarows) restoreAllMarks();
       }).bind(chart));
+
       chart.on("mousedown", (function (evt, item) {
         // dragx and dragy are comma-separated strings of the form
-        //    scaleName,datasetName,columnName  (e.g. x,mtcars,wt)
+        //    scaleName,datasetName,columnName  (e.g. x,workingData,wt)
         // we signal to R with structured messages (JSON encoded) such as
         //    message: set
         //    args:
-        //      0 -> { dataset: "mtcars", column: "wt", row: 6, value: 3.5 }
-        //      1 -> { dataset: "mtcars", column: "mpg", row: 6, value: 15 }
+        //      0 -> { dataset: "workingData", column: "wt", row: 6, value: 3.5 }
+        //      1 -> { dataset: "workingData", column: "mpg", row: 6, value: 15 }
         if (item.dragx || item.dragy) {        // this is an item the user can drag
-          // var handle = lively.morphic.Morph.makeCircle(pt(0,0), 8, 2, Color.gray, Color.black);
           var handleSize = 6;
           var handle = lively.morphic.Morph.makePolygon(
                 [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize)], 2, Color.black, Color.black);
 
           this.dragItem = item;
+          handle.lastDragPos = evt.getPosition();
           handle.itemRow = JSON.parse(item.datarows)[0];
           handle.chart = this;
           
@@ -404,33 +408,53 @@ so then the question is how to send an update to a dataset on which another depe
             s = dragSpec.split(",");
             return { scale: s[0], dataset: s[1], column: s[2] }
           }
-          if (item.dragx) handle.xSpec = toList(item.dragx)
-          if (item.dragy) handle.ySpec = toList(item.dragy)
+          if (item.dragx) handle.xSpec = toList(item.dragx);
+          if (item.dragy) handle.ySpec = toList(item.dragy);
+          var dataset = (handle.xSpec && handle.xSpec.dataset) || (handle.ySpec && handle.ySpec.dataset);
+          if (dataset == "trialLine") {
+            // HACK
+            window.Shiny.shinyapp.sendInput({"showPopup": "TRUE"});
+            $world.get("ShinyGigvisMorph1").popupChartMorph(3);
+            };
+          var msg = { message: "startEdit", args: [ dataset ] };
+          window.Shiny.onInputChange("trigger", JSON.stringify(msg));
 
-          handle.throttledDragHandler = Functions.throttle((function(evt) {
+          // handle.onBlur = function() { debugger; }
+
+          handle.addScript(function toChartCoords(evtPt) {
             var targetChart = this.chart;
             var chartRect = $(targetChart._el).bounds();
-            // var rect = targetChart._el.getBoundingClientRect();
-            var evtPos = evt.getPosition() // this.globalBounds().center();
             var padding = targetChart.padding();
             var chartTop = chartRect.top + padding.top;
             var chartLeft = chartRect.left + padding.left;
-/*
-$world.cachedBounds = null;
-var worldRect = $world.getBounds()
-var chartTop = rect.top + padding.top - worldRect.top();
-var chartLeft = rect.left + padding.left - worldRect.left();
-*/
             var chartGroup = targetChart.model().scene().items[0];
-            var args = [];
-            var msg = { message: "editData", args: args };
+            var xVal, yVal;
             if (this.xSpec) {
-              var xVal = chartGroup.scales[this.xSpec.scale].invert(evtPos.x - chartLeft).toFixed(2);
-              args.push( { dataset: this.xSpec.dataset, column: this.xSpec.column, row: this.itemRow, value: xVal } );
+              xVal = chartGroup.scales[this.xSpec.scale].invert(evtPt.x - chartLeft);
             }
             if (this.ySpec) {
-              var yVal = chartGroup.scales[this.ySpec.scale].invert(evtPos.y - chartTop).toFixed(2);
-              args.push( { dataset: this.ySpec.dataset, column: this.ySpec.column, row: this.itemRow, value: yVal } );
+              yVal = chartGroup.scales[this.ySpec.scale].invert(evtPt.y - chartTop);
+            }
+            return pt(xVal, yVal);
+          }).bind(handle);
+
+          handle.throttledDragHandler = Functions.throttle((function(evt) {
+            var evtPos = evt.getPosition();
+            this.lastDragPos = evtPos;
+            if (this.rangeLine) {
+              var vs = this.rangeLine.vertices();
+              vs[1] = vs[0].addPt(evtPos.subPt(this.rangeStartPos));
+              this.rangeLine.setVertices(vs);
+            }
+
+            var args = [];
+            var msg = { message: "editData", args: args };
+            var chartPt = this.toChartCoords(evtPos);
+            if (chartPt.x) {
+              args.push( { dataset: this.xSpec.dataset, column: this.xSpec.column, row: this.itemRow, value: chartPt.x.toFixed(2), xy: "x" } );
+            }
+            if (chartPt.y) {
+              args.push( { dataset: this.ySpec.dataset, column: this.ySpec.column, row: this.itemRow, value: chartPt.y.toFixed(2), xy: "y" } );
             }
             window.Shiny.onInputChange("trigger", JSON.stringify(msg));
           }).bind(handle), 200);
@@ -438,14 +462,70 @@ var chartLeft = rect.left + padding.left - worldRect.left();
           handle.addScript(function onDrag(evt) {
             this.throttledDragHandler(evt);
           }).bind(handle);
+
+          handle.addScript(function onKeyDown(evt) {
+            if (evt.getKeyCode() === Event.KEY_SHIFT) {
+              this.rangeStartPos = this.lastDragPos;
+              var line = lively.morphic.Morph.makeLine([this.rangeStartPos, this.rangeStartPos]).applyStyle({borderWidth: 2, borderColor: Color.red});
+              this.rangeLine = $world.addMorph(line);
+              this.focus();
+            }
+          }).bind(handle);
+
+          handle.addScript(function onKeyUp(evt) {
+            if (evt.getKeyCode() === Event.KEY_SHIFT) {
+              if (!this.rangeStartPos) return;
+              if (this.rangeLine) { this.rangeLine.remove(); delete this.rangeLine };
+              var minDiff = 8;          // pixels, in either direction
+              var start = this.rangeStartPos;
+              var end = this.lastDragPos;
+              var xDiff = start.x ? end.x - start.x : 0;
+              var yDiff = start.y ? end.y - start.y : 0;
+              var nSteps = Math.floor(Math.min(Math.max(Math.abs(xDiff), Math.abs(yDiff)) / minDiff, 9));
+              if (nSteps == 0) return;
+              var xStep = xDiff / nSteps;
+              var yStep = yDiff / nSteps;
+              var steps = [];
+              for (var s = 0; s <= nSteps; s++) {
+                var interPos = pt(start.x + (s*xStep), start.y + (s*yStep));
+                var chartPt = this.toChartCoords(interPos); 
+                steps.push(chartPt);
+              }
+              //console.log(steps);
+              if (this.whichDataset() == "trialLine") {
+                var isLeft = this.itemRow == 1;
+                var parm = isLeft ? "trialLeft" : "trialRight";
+                var values = steps.map(function (s) { return Number(s.y.toFixed(2)) });
+                var msg = { message: "setScenarios", args: [ parm, values ] };
+                window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+              }
+            }
+          }).bind(handle);
+
+          handle.addScript(function whichDataset() {
+            return (this.xSpec && this.xSpec.dataset) || (this.ySpec && this.ySpec.dataset);
+          }).bind(handle);
           
-          handle.addScript(function onDropOn(evt) { this.remove(); this.chart.endDrag() }).bind(handle);
+          handle.addScript(function onDropOn(evt) {
+            var dataset = this.whichDataset();
+            if (dataset == "trialLine") {
+              // HACK
+              window.Shiny.shinyapp.sendInput({"showPopup": "FALSE"});
+              $world.get("GigvisPopup3").remove();
+            };
+            var msg = { message: "endEdit", args: [ dataset ] };
+            window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+            if (this.rangeLine) this.rangeLine.remove();
+            this.remove();
+            this.chart.endDrag();
+          }).bind(handle);
           handle.getGrabShadow = function() { return null };
           
           //evt.hand.getPosition()
           evt.hand.grabMorph(handle, evt);
           handle.setPosition(pt(-4,-4));
           $world.draggedMorph = handle;
+          handle.focus();
         }
       }).bind(chart));
     });
