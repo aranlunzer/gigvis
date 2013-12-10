@@ -58,6 +58,17 @@ writeMemoryProfile <- function() {
   write.table(lsos(pos=livelyR_env), file="memory_profile", append=TRUE)
 }
 
+provenanceValue <- function(...) {
+  parms <- list(...)
+  if (exists("gvParms")) {
+    # put the supplied extras on top of all the gvParm values
+    parmList <- isolate(reactiveValuesToList(gvParms))
+    for (name in names(parms)) parmList[[name]] <- parms[[name]]
+    parms <- parmList
+  }
+  toJSON(parms)
+}
+
 #' Pretending we're modeling using our own lines
 #' Instead of using a model to make a line, we create our own arbitrarily and then want to know things about it,
 #' such as residuals and R^2
@@ -245,7 +256,7 @@ refreshCharts <- function() {
 }
 
 triggerRefresh <- function(scope) {
-  scopeVar <- paste0("refresh", scope)
+  scopeVar <- paste0("refresh_", scope)
   prev <- isolate(gvReactives[[scopeVar]])
   debugLog(paste0(scope, " <- ", print(prev+1)))
   gvReactives[[scopeVar]] <- prev + 1

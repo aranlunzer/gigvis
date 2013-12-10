@@ -7,7 +7,7 @@
 oneTimeInitShinyGgvis = function() {
   window.shinyGgvisInitialized = true;
 
-  var debug = false;
+  var debug = true;
 
   var livelyPendingData = {};
   var livelyPendingCharts = {};
@@ -357,8 +357,11 @@ so then the question is how to send an update to a dataset on which another depe
         if (item.mark && item.mark.def.description && item.mark.def.description.scenario) {
           var touchedScenario = item.mark.def.description.scenario
           highlightScenarioMarks(this, scenarioMarks, touchedScenario)
-          d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
-        } else if (item.datarows && !(item.mark.marktype == "rect" && scenarioMarks.length > 0)) {  // hack to disable brushing on main-scenario histogram when scenarios are being shown
+          // DISABLED: code to sort all scenario marks so the touched one is guaranteed to be on top.  Using this function messed something up, preventing cleanup of the marks.  Figure it out later.
+          //d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
+        } else if (item.datarows) {
+          // hack that used to let us disable brushing on main-scenario histogram when scenarios are being shown:
+          //   && !(item.mark.marktype == "rect" && scenarioMarks.length > 0)
           allCharts().forEach(function(ch) {
             ch.update({ props: "highlight", items: relatedItems(ch, item) })
           });
@@ -469,6 +472,13 @@ so then the question is how to send an update to a dataset on which another depe
               var line = lively.morphic.Morph.makeLine([this.rangeStartPos, this.rangeStartPos]).applyStyle({borderWidth: 2, borderColor: Color.red});
               this.rangeLine = $world.addMorph(line);
               this.focus();
+            } else if (evt.getKeyCode() === Event.KEY_TAB) {
+              // couldn't figure out whether there's a combination of stopPropagation etc
+              // to allow the tab press to appear to onKeyPress.  So we deal with it here.
+              console.log("tab down");
+              console.log(evt.isShiftDown() ? " shifted" : " unshifted");
+              evt.stop();
+              return false;
             }
           }).bind(handle);
 
@@ -500,6 +510,10 @@ so then the question is how to send an update to a dataset on which another depe
                 window.Shiny.onInputChange("trigger", JSON.stringify(msg));
               }
             }
+          }).bind(handle);
+
+          handle.addScript(function onKeyPress(evt) {
+            // console.log(evt.charCode);
           }).bind(handle);
 
           handle.addScript(function whichDataset() {

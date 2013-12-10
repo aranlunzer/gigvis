@@ -1,4 +1,4 @@
-  #' Create a new "mark" object.
+#' Create a new "mark" object.
 #'
 #' A mark object is a close mapping to a vega mark object. Vega marks
 #' are documented in \url{https://github.com/trifacta/vega/wiki/Marks}.
@@ -13,23 +13,11 @@
 #' @export
 #' @keywords internal
 mark <- function(type, props, data = NULL) {
-  markprops <- props
-  if (exists("gvParms")) {
-    parms <- isolate(reactiveValuesToList(gvParms))
-    if (exists("gvScenarioParms")) {
-      for (p in ls(gvScenarioParms)) {
-        parms[[p]] <- gvScenarioParms[[p]]
-      }
-    }
-    markprops <- merge_props(props, props(sharedProvenance := toJSON(parms,collapse="")))
-    # markprops <- merge_props(props, props(sharedProvenance = toJSON(gvParms,collapse="")))
-    # if gvParms goes back to being non-reactive
-  } 
   m <- structure(
     compact(list(
       type = type,
       data = as.pipeline(data),   # if data is NULL, an empty pipeline (see flatten)
-      props = markprops
+      props = props
     )),
     class = c(paste0("mark_", type), "mark", "branch")
   )
