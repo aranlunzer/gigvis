@@ -97,7 +97,7 @@ observe_ggvis <- function(r_gv, id, session, ...) {
     stop("observe_ggvis requires a reactive expression that returns a ggvis object",
       call. = FALSE)
   }
-  r_spec <- reactive(as.vega(r_gv(), session = session, dynamic = TRUE, ...))
+  r_spec <- reactive( as.vega(r_gv(), session = session, dynamic = TRUE, ...) )
 
   observe_spec(r_spec, id, session)
   observe_data(r_spec, id, session)
@@ -126,9 +126,9 @@ observe_data <- function(r_spec, id, session) {
     # which need to be suspended before we create new ones.
     for (obs in data_observers) obs$suspend()
     data_observers <<- list()
-
+      
     data_table <- attr(r_spec(), "data_table")
-
+    
     # Create observers for each of the data objects
     for (name in ls(data_table, all.names = TRUE)) {
       # The datasets list contains named objects. The names are synthetic IDs
@@ -138,10 +138,10 @@ observe_data <- function(r_spec, id, session) {
         # Have to do everything in a local so that these variables are not shared
         # between the different iterations
         data_name <- name
-
+        
         obs <- observe({
           data_reactive <- get(data_name, data_table)
-
+          
           session$sendCustomMessage("ggvis_data", list(
             plotId = id,
             name = data_name,
@@ -151,7 +151,7 @@ observe_data <- function(r_spec, id, session) {
         session$onSessionEnded(function() {
           obs$suspend()
         })
-
+        
         # Track this data observer
         data_observers[[length(data_observers) + 1]] <<- obs
       })

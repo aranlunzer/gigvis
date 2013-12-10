@@ -1,4 +1,4 @@
-  #' Create a new "mark" object.
+#' Create a new "mark" object.
 #'
 #' A mark object is a close mapping to a vega mark object. Vega marks
 #' are documented in \url{https://github.com/trifacta/vega/wiki/Marks}.
@@ -16,7 +16,7 @@ mark <- function(type, props, data = NULL) {
   m <- structure(
     compact(list(
       type = type,
-      data = as.pipeline(data),
+      data = as.pipeline(data),   # if data is NULL, an empty pipeline (see flatten)
       props = props
     )),
     class = c(paste0("mark_", type), "mark", "branch")

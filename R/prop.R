@@ -94,7 +94,8 @@ prop_value <- function(x, data) UseMethod("prop_value")
 #' @export
 prop_value.default <- function(x, data) {
   if (x$type == "constant") return(rep(x$value, nrow(data)))
-
+  if (x$type != "reactive" && x$value == "singlerowstring") return(paste("[",seq(1,nrow(data)),"]")) # ael added
+  
   # Get the expression to evaluate
   if (x$type == "reactive") {
     expr <- x$value()

@@ -54,9 +54,13 @@ connect.split_by_group <- function(x, props, source = NULL, session = NULL) {
 #' @export
 #' @importFrom digest digest
 pipe_id.split <- function(x, props) {
-  paste("split", digest(x, algo = "crc32"), sep = "_")
+  # paste("split", digest(x, algo = "crc32"), sep = "_")   original version
+  if (isTRUE(getOption('shiny.withlively'))) {
+    paste0("split", "/", digest(props, algo = "crc32"), "/")
+  } else {
+    paste0("split", "/", digest(x, algo = "crc32"), "/")
+  }
 }
-
 
 # Given a data object like a data frame or split_df, return the variables that
 # the data is split on.

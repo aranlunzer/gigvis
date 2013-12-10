@@ -33,7 +33,6 @@ ggvis = (function(_) {
       "$1"));
   }
 
-
   // ggvis.Plot class ----------------------------------------------------------
   ggvis.Plot = (function() {
 
