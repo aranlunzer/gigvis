@@ -1,0 +1,191 @@
+{
+session$sendCustomMessage("ggvis_vega_spec", list(plotId = id, spec = r_spec()))
+cat(x, file = file, sep = c(rep.int(sep, ncolumns - 1), "\n"), 
+    append = append)
+write(unlist(traceback(2)), file = errfile, append = TRUE)
+(function (e) 
+{
+    errfile = "observer_error"
+    write(as.character(body(.func)), file = errfile)
+    write(unlist(traceback(2)), file = errfile, append = TRUE)
+    stop(e)
+})(list(message = "object 'p.value' not found", call = FUN(X[[1L]], 
+    ...)))
+stop(e)
+r_spec()
+session$sendCustomMessage("ggvis_vega_spec", list(plotId = id, 
+    spec = r_spec())) at shiny.R#109
+func()
+withCallingHandlers(expr, error = function(e) {
+    handle <- getOption("shiny.error")
+    if (is.function(handle)) 
+        handle()
+})
+shinyCallingHandlers(func())
+env$runWith(.self, func)
+ctx$run(.func)
+withCallingHandlers({
+    ctx$run(.func)
+}, error = function(e) {
+    errfile = "observer_error"
+    write(as.character(body(.func)), file = errfile)
+    write(unlist(traceback(2)), file = errfile, append = TRUE)
+    stop(e)
+})
+run()
+func()
+withCallingHandlers({
+    func()
+}, error = function(e) {
+    if (isTRUE(getOption("shiny.withlively"))) 
+        stop(e)
+})
+FUN(X[[1L]], ...)
+lapply(.flushCallbacks, function(func) {
+    withCallingHandlers({
+        func()
+    }, error = function(e) {
+        if (isTRUE(getOption("shiny.withlively"))) 
+            stop(e)
+    })
+})
+ctx$executeFlushCallbacks()
+.getReactiveEnvironment()$flush()
+flushReact()
+handler(binary, message)
+doTryCatch(return(expr), name, parentenv, handler)
+tryCatchOne(expr, names, parentenv, handlers[[1L]])
+tryCatchList(expr, classes, parentenv, handlers)
+tryCatch(expr, error = function(e) {
+    call <- conditionCall(e)
+    if (!is.null(call)) {
+        if (identical(call[[1L]], quote(doTryCatch))) 
+            call <- sys.call(-4L)
+        dcall <- deparse(call)[1L]
+        prefix <- paste("Error in", dcall, ": ")
+        LONG <- 75L
+        msg <- conditionMessage(e)
+        sm <- strsplit(msg, "\n")[[1L]]
+        w <- 14L + nchar(dcall, type = "w") + nchar(sm[1L], type = "w")
+        if (is.na(w)) 
+            w <- 14L + nchar(dcall, type = "b") + nchar(sm[1L], 
+                type = "b")
+        if (w > LONG) 
+            prefix <- paste0(prefix, "\n  ")
+    }
+    else prefix <- "Error : "
+    msg <- paste0(prefix, conditionMessage(e), "\n")
+    .Internal(seterrmessage(msg[1L]))
+    if (!silent && identical(getOption("show.error.messages"), 
+        TRUE)) {
+        cat(msg, file = stderr())
+        .Internal(printDeferredWarnings())
+    }
+    invisible(structure(msg, class = "try-error", condition = e))
+})
+try(handler(binary, message)) at httpuv.R#187
+(function (handle, binary, message) 
+{
+    for (handler in .wsconns[[as.character(handle)]]$.messageCallbacks) {
+        result <- try(handler(binary, message))
+        if (inherits(result, "try-error")) {
+            .wsconns[[as.character(handle)]]$close()
+            return()
+        }
+    }
+})("140333425975584", FALSE, "{\"method\":\"init\",\"data\":{\".clientdata_output_ggvis_controls_hidden\":false,\".clientdata_pixelratio\":1,\".clientdata_url_protocol\":\"http:\",\".clientdata_url_hostname\":\"127.0.0.1\",\".clientdata_url_port\":\"4452\",\".clientdata_url_pathname\":\"/\",\".clientdata_url_search\":\"?viewer_pane=1\",\".clientdata_url_hash_initial\":\"\",\".clientdata_singletons\":\"ec765cdef9a7ff6f75f0046390a3e341e02dff20\",\".clientdata_allowDataUriScheme\":true}}")
+eval(substitute(expr), envir, enclos)
+evalq((function (handle, binary, message) 
+{
+    for (handler in .wsconns[[as.character(handle)]]$.messageCallbacks) {
+        result <- try(handler(binary, message))
+        if (inherits(result, "try-error")) {
+            .wsconns[[as.character(handle)]]$close()
+            return()
+        }
+    }
+})("140333425975584", FALSE, "{\"method\":\"init\",\"data\":{\".clientdata_output_ggvis_controls_hidden\":false,\".clientdata_pixelratio\":1,\".clientdata_url_protocol\":\"http:\",\".clientdata_url_hostname\":\"127.0.0.1\",\".clientdata_url_port\":\"4452\",\".clientdata_url_pathname\":\"/\",\".clientdata_url_search\":\"?viewer_pane=1\",\".clientdata_url_hash_initial\":\"\",\".clientdata_singletons\":\"ec765cdef9a7ff6f75f0046390a3e341e02dff20\",\".clientdata_allowDataUriScheme\":true}}"), 
+    <environment>)
+doTryCatch(return(expr), name, parentenv, handler)
+tryCatchOne(expr, names, parentenv, handlers[[1L]])
+tryCatchList(expr, classes, parentenv, handlers)
+tryCatch(evalq((function (handle, binary, message) 
+{
+    for (handler in .wsconns[[as.character(handle)]]$.messageCallbacks) {
+        result <- try(handler(binary, message))
+        if (inherits(result, "try-error")) {
+            .wsconns[[as.character(handle)]]$close()
+            return()
+        }
+    }
+})("140333425975584", FALSE, "{\"method\":\"init\",\"data\":{\".clientdata_output_ggvis_controls_hidden\":false,\".clientdata_pixelratio\":1,\".clientdata_url_protocol\":\"http:\",\".clientdata_url_hostname\":\"127.0.0.1\",\".clientdata_url_port\":\"4452\",\".clientdata_url_pathname\":\"/\",\".clientdata_url_search\":\"?viewer_pane=1\",\".clientdata_url_hash_initial\":\"\",\".clientdata_singletons\":\"ec765cdef9a7ff6f75f0046390a3e341e02dff20\",\".clientdata_allowDataUriScheme\":true}}"), 
+    <environment>), error = .rcpp_error_recorder)
+.Call("httpuv_run", PACKAGE = "httpuv", timeoutMillis) at RcppExports.R#25
+run(timeoutMs) at httpuv.R#404
+service(timeout)
+serviceApp()
+withCallingHandlers(expr, error = function(e) {
+    handle <- getOption("shiny.error")
+    if (is.function(handle)) 
+        handle()
+})
+shinyCallingHandlers(while (!.globals$stopped) {
+    serviceApp()
+    if (isTRUE(getOption("shiny.withlively")) && geterrmessage() != 
+        "") 
+        stop(geterrmessage())
+    Sys.sleep(0.001)
+})
+tryCatchList(expr, classes, parentenv, handlers)
+tryCatch(shinyCallingHandlers(while (!.globals$stopped) {
+    serviceApp()
+    if (isTRUE(getOption("shiny.withlively")) && geterrmessage() != 
+        "") 
+        stop(geterrmessage())
+    Sys.sleep(0.001)
+}))
+runApp(app, port = port, launch.browser = function(url) view_plot(url, 
+    height)) at print.R#184
+view_dynamic(x, ...) at print.R#26
+print.ggvis(list(data = list(`datasource(x, name = name)` = list(
+    env = <environment>, name = "mtcars", hash = "a63c70e73b58d0823ab3bcbd3b543d6f")), 
+    props = list(x.update = list(value = wt, dr = NULL, type = "variable", 
+        scale = TRUE, offset = NULL, mult = NULL, env = <environment>), 
+        y.update = list(value = mpg, dr = NULL, type = "variable", 
+            scale = TRUE, offset = NULL, mult = NULL, env = <environment>), 
+        fill.update = list(value = function () 
+        stop("Delayed reactive has not yet been advanced!"), 
+            dr = list(control_f = "selectInput", control_args = list(
+                "select_974195397", "Dynamically-generated column", 
+                choices = c("A", "B"), selected = NULL, multiple = FALSE), 
+                default = "A", map = function (value) 
+                {
+                  vals <- switch(value, A = rep(c("One", "Two")), 
+                    B = c("First", "Second", "Third", "Fourth"))
+                  rep(vals, length = nrow(mtcars))
+                }, id = "select_974195397"), type = "reactive", 
+            scale = TRUE, offset = NULL, mult = NULL, env = <environment>)), 
+    children = list(list(type = "symbol", props = list(datarows.update = list(
+        value = singlerowstring, dr = NULL, type = "variable", 
+        scale = FALSE, offset = NULL, mult = NULL, env = <environment>))))))
+print(list(data = list(`datasource(x, name = name)` = list(env = <environment>, 
+    name = "mtcars", hash = "a63c70e73b58d0823ab3bcbd3b543d6f")), 
+    props = list(x.update = list(value = wt, dr = NULL, type = "variable", 
+        scale = TRUE, offset = NULL, mult = NULL, env = <environment>), 
+        y.update = list(value = mpg, dr = NULL, type = "variable", 
+            scale = TRUE, offset = NULL, mult = NULL, env = <environment>), 
+        fill.update = list(value = function () 
+        stop("Delayed reactive has not yet been advanced!"), 
+            dr = list(control_f = "selectInput", control_args = list(
+                "select_974195397", "Dynamically-generated column", 
+                choices = c("A", "B"), selected = NULL, multiple = FALSE), 
+                default = "A", map = function (value) 
+                {
+                  vals <- switch(value, A = rep(c("One", "Two")), 
+                    B = c("First", "Second", "Third", "Fourth"))
+                  rep(vals, length = nrow(mtcars))
+                }, id = "select_974195397"), type = "reactive", 
+            scale = TRUE, offset = NULL, mult = NULL, env = <environment>)), 
+    children = list(list(type = "symbol", props = list(datarows.update = list(
+        value = singlerowstring, dr = NULL, type = "variable", 
+        scale = FALSE, offset = NULL, mult = NULL, env = <environment>))))))

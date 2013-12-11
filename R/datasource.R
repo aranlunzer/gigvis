@@ -63,7 +63,17 @@ pipe_id.datasource <- function(x, props) {
   if (is.null(props)) {
     paste0(x$name, "/", x$hash, "/")
   } else {
-    propStr <- paste(vapply(props, function(p) as.character(p$value), character(1)), collapse="")
+    # now that props can be expressions such as   ~time + 1   we need to concat their strings.
+    # it turns out they can also now be functions (e.g. see prop.R line 63)
+    propStr <- paste(
+      vapply(
+        props,
+        function(p)
+          if (is.function(p$value)) "(func)"
+          else paste(as.character(p$value), collapse=""),
+        character(1)
+        ),
+      collapse="")
     paste0(x$name, "/", x$hash, ":", propStr, "/")
   }
 }

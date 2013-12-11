@@ -52,7 +52,7 @@ as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
   axes <- add_default_axes(x$axes, scales)
   axes <- apply_axes_defaults(axes, scales)
   # ael: allow an axis to be suppressed by setting its title to "-"
-  axes <- axes[which(vapply(axes, function(a) a$title!="-", logical(1)))]
+  axes <- axes[which(vapply(axes, function(a) !identical(a$title,"-"), logical(1)))]
   if (length(axes)==0) { axesVega <- NA }
   else { axesVega <- lapply(axes, as.vega) }
 

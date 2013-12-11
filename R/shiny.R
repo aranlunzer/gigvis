@@ -126,7 +126,7 @@ observe_data <- function(r_spec, id, session) {
     # which need to be suspended before we create new ones.
     for (obs in data_observers) obs$suspend()
     data_observers <<- list()
-      
+
     data_table <- attr(r_spec(), "data_table")
     
     # Create observers for each of the data objects
