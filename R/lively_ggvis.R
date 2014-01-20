@@ -33,7 +33,8 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
   if (is.null(padding)) padding <- padding() # top, right, bottom, left
   # expecting the x argument to be a ggvis_table structure with a single
   # element, which is a lively_table_mark structure.
-  r_data <- reactive( x$data()[setdiff(names(x$data()), c("chartx", "charty", "initialx","initialy"))] )
+  r_data <- reactive( x$data()[setdiff(names(x$data()),
+                                 c("chartx", "charty", "initialx","initialy","originalrow"))] )
   data_id <- paste0(x$dataname, "_table")  # , digest(x$data))
   datasets <- as.vega(isolate(r_data()), data_id)
   data_table <- new.env(parent = emptyenv())
@@ -41,14 +42,14 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
 
   # inline version of a degenerate as.vega.mark
   markprops <- as.vega(props(backgroundColor:="none"))
-  markprops$highlight <- as.vega(props(backgroundColor:="red"))$update
+  markprops$highlight <- as.vega(props(backgroundColor:="orange"))$update
   #markprops$scenarioHighlight <- as.vega(props(fill="green", fillOpacity=0.3, stroke="black"))
   
   froms <- list()
   froms$data <- data_id
   description <- list()
   #   if (!is.null(vegaprops$sharedProvenance)) {
-  #     description <- fromJSON(vegaprops$sharedProvenance$value)
+  #     description <- fromJSON(vegaprops$sharedProvenance$value, asText=TRUE)
   #   }
   description$datasource <- x$dataname #digest(isolate(x$data()))  # for figuring out row numbers
   description$xProp <- x$xProp
@@ -83,7 +84,10 @@ view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, rende
   ui <- do.call("mainPanel", uiList)
 
   server <- function(input, output, session) {
-    options(warn = 1)       # make sure warnings are issued immediately
+    options(warn = 1)       # ensure issued immediately (only applies to non-caught warnings)
+
+    #searchpath <- capture.output(search())
+    #debugLog(paste0("search in server: ", paste(searchpath, collapse="")))
 
     # create an observer for processing and updating each of the gv specs
     for (s in 1:length(r_gvSpecs)) {
@@ -101,6 +105,7 @@ view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, rende
       if (input$quit > 0) stopApp()
     }, label="obs_quit")
   }
+  environment(server) <- environment()
 
   # try 3 times to find an available port, somewhere in the range 8120 to 8149
   for (try in 1:3) {
@@ -176,9 +181,12 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
         debugLog(paste0(
           id, " version ", as.character(gvChartVersions[[id]]), " vega spec"))
         spec_struct <- NULL
+# a place to profile the heaviest part of any chart re-generation
+#if (id == "plot1") Rprof("r_profile", memory.profiling=FALSE, interval=0.002)
         all_rs <- trackReactivesDuring(function() {
           spec_struct <<- as.vega(r_gv(), session = session, dynamic = FALSE)
         })
+#if (id == "plot1") Rprof(NULL)
         #all_rs <- attr(spec_struct, "all_reactives")
         debugLog(paste0(
           "all_chart_reactives for ", id, ": ", as.character(length(all_rs))))
@@ -252,7 +260,6 @@ lively_observe_data <- function(r_spec, id, session) {
 
           obs <- observe({
             # watch for changes in the appropriate reactive within the data table
-            debugLog(paste0("observing data: ", data_name))
             data_reactive <- get(data_name, data_table)
             debugLog(paste0("get: ", data_name, " for ", as.character(id), " version ", as.character(version))) 
             ok <- TRUE

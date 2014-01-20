@@ -16,7 +16,7 @@
 #'   properties listed below.
 #' @param data An optional dataset, if you want to override the usual data
 #'   inheritance for this mark.
-# NULL    ????
+NULL
 
 # Return a character vector of valid properties for a given mark
 valid_mark_properties <- function(mark) UseMethod("valid_mark_properties")
@@ -36,15 +36,15 @@ default_mark_properties.default <- function(mark) {
 #' @rdname marks
 #' @export
 mark_symbol <- function(props = NULL, data = NULL)
-  mark("symbol", props = merge_props(props, props(datarows=prop(quote(singlerowstring), scale=FALSE))), data = data)
+  mark("symbol", props = merge_props(props, props(datarows:=~singlerowstring)), data = data)
 #' @export
 valid_mark_properties.mark_symbol <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "size", "shape", "key", "datarows", "sharedProvenance", "dragx", "dragy", "initialx", "initialy")
+    "strokeOpacity", "size", "shape", "key", "datarows", "scenario", "sharedProvenance", "dragx", "dragy", "initialx", "initialy")
 }
 #' @export
 default_mark_properties.mark_symbol <- function(mark) {
-  props(fill := "#000000", size := 100, opacity := 1.0)
+  props(fill := "#000000", size := 100, opacity := 1.0, scenario := 0)
 }
 
 
@@ -54,11 +54,11 @@ mark_image <- function(props = NULL, data = NULL) mark("image", props = props, d
 #' @export
 valid_mark_properties.mark_image <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "url", "align", "baseline", "key", "datarows", "sharedProvenance")
+    "strokeOpacity", "url", "align", "baseline", "key", "datarows", "scenario", "sharedProvenance")
 }
 #' @export
 default_mark_properties.mark_image <- function(mark) {
-  props(fill := "#000000")
+  props(fill := "#000000", scenario := 0)
 }
 
 
@@ -68,11 +68,11 @@ mark_arc <- function(props = NULL, data = NULL) mark("arc", props = props, data 
 #' @export
 valid_mark_properties.mark_arc <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "innerRadius", "outerRadius", "startAngle", "endAngle", "key", "datarows", "sharedProvenance")
+    "strokeOpacity", "innerRadius", "outerRadius", "startAngle", "endAngle", "key", "datarows", "scenario", "sharedProvenance")
 }
 #' @export
 default_mark_properties.mark_arc <- function(mark) {
-  props(fill := "#333333")
+  props(fill := "#333333", scenario := 0)
 }
 
 
@@ -82,11 +82,11 @@ mark_area <- function(props = NULL, data = NULL) mark("area", props = props, dat
 #' @export
 valid_mark_properties.mark_area <- function(mark) {
   c("x", "y", "y2", "height", "opacity", "fill", "fillOpacity", "stroke", 
-    "strokeWidth", "strokeOpacity", "interpolate", "tension", "key", "datarows", "sharedProvenance")
+    "strokeWidth", "strokeOpacity", "interpolate", "tension", "key", "datarows", "scenario", "sharedProvenance")
 }
 #' @export
 default_mark_properties.mark_area <- function(mark) {
-  props(fill := "#333333")
+  props(fill := "#333333", scenario := 0)
 }
 
 
@@ -96,11 +96,11 @@ mark_line <- function(props = NULL, data = NULL) mark("line", props = props, dat
 #' @export
 valid_mark_properties.mark_line <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "interpolate", "tension", "key", "datarows", "sharedProvenance")
+    "strokeOpacity", "strokeDash", "interpolate", "tension", "key", "datarows", "scenario", "sharedProvenance")
 }
 #' @export
 default_mark_properties.mark_line <- function(mark) {
-  props(stroke := "#000000", opacity := 1.0)
+  props(stroke := "#000000", opacity := 1.0, scenario := 0)
 }
 
 #' @export
@@ -109,11 +109,11 @@ mark_rect <- function(props = NULL, data = NULL) mark("rect", props = props, dat
 #' @export
 valid_mark_properties.mark_rect <- function(mark) {
   c("x", "x2", "y", "y2", "width", "height", "opacity", "fill", "fillOpacity", "stroke",
-    "strokeWidth", "strokeOpacity", "key", "datarows", "sharedProvenance")
+    "strokeWidth", "strokeOpacity", "key", "datarows", "scenario", "sharedProvenance")
 }
 #' @export
 default_mark_properties.mark_rect <- function(mark) {
-    props(stroke := "#000000", fill := "#333333", opacity := 1.0)
+    props(stroke := "#000000", fill := "#333333", opacity := 1.0, scenario := 0)
 }
 
 #' @export
@@ -123,9 +123,9 @@ mark_text <- function(props = NULL, data = NULL) mark("text", props = props, dat
 valid_mark_properties.mark_text <- function(mark) {
   c("x", "y", "text", "opacity", "fill", "fillOpacity", "stroke",
     "strokeWidth", "strokeOpacity", "align", "baseline", "dx", "dy",
-    "angle", "font", "fontSize", "fontWeight", "fontStyle", "key", "datarows", "sharedProvenance")
+    "angle", "font", "fontSize", "fontWeight", "fontStyle", "key", "datarows", "scenario", "sharedProvenance")
 }
 #' @export
 default_mark_properties.mark_text <- function(mark) {
-  props(fill := "#333333")
+  props(fill := "#333333", scenario := 0)
 }

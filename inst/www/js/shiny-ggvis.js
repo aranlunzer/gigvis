@@ -12,9 +12,28 @@ oneTimeInitShinyGgvis = function() {
   var livelyPendingData = {};
   var livelyPendingCharts = {};
   var livelyRenderedCharts = {};
+  var livelyDataTriggers = {};
+  var livelyEditRange = null;      // last used edit range, suitable for creating a sweep
 
   var _ = window.lodash;
 
+  // ael: a wrapper onto onInputChange, that adds a millisecond-level time field to
+  // ensure that each value (e.g., message) is different from the previous one.
+  // NB: assumes message has NOT yet been JSONised.
+  Shiny.timestampedOnInputChange = function(name, messageObj) {
+    Shiny.onInputChange(name, JSON.stringify($.extend(messageObj, { timestamp: new Date().getTime() })));
+  }
+  Shiny.chartNamed = function(chartName) { return $(".ggvis-output#"+chartName).data("ggvisChart") }
+  Shiny.startJogOnChartNamed = function(chartName) {
+    Shiny.startJog(Shiny.chartNamed(chartName));
+  }
+  Shiny.setUpSweepOnChartNamed = function(chartName) {
+    Shiny.setUpSweep(Shiny.chartNamed(chartName));
+  }
+  Shiny.setUpParameterRangeOnChartNamed = function(chartName, parameter, values, triggerName) {
+    Shiny.setUpParameterRange(Shiny.chartNamed(chartName), parameter, values, triggerName)
+  }
+  
   var ggvisOutputBinding = new Shiny.OutputBinding();
   $.extend(ggvisOutputBinding, {
     find: function(scope) {
@@ -163,14 +182,14 @@ oneTimeInitShinyGgvis = function() {
     var dataSpec = message.value[0];
     var values = dataSpec.values;   // may be undefined
 if (debug) console.log("data", chartId, version, name);
-//if (debug && name=="r_scenTrial3") console.log("data", chartId, version, name);
 
     // If the data spec belongs to a chart that's already rendered, and contains a
     // values array, send it in.
     var existingChartDetails = livelyRenderedCharts[chartId];
     if (existingChartDetails && existingChartDetails.version == version) {
-      if (values) {
+      if (values) {  // NB: for a tree dataset sent as r_foo and r_foo_tree, r_foo has no values 
         var chart = existingChartDetails.chart;
+        var needsSort = false;
         // HUMONGOUS HAIRY HACK
         // if there isn't a cleaner way of doing this, we should add one
         if (values.children) {
@@ -184,10 +203,15 @@ if (debug) console.log("data", chartId, version, name);
           var subData = {};
           subData[name] = vg.data.read(values, format);
           chart.data(subData);
+          // if (name=="r_sweep_scatter") console.log(subData[name]);  // often useful  :-)
+          needsSort = subData[name].length>0 && (subData[name][0].scenario!==undefined);
         }
         chart.update();
+        if (needsSort) chart.sortScenarioItems();
         chart.highlightDragItems();
       }
+      var trigger = livelyDataTriggers[name];
+      if (trigger) { delete livelyDataTriggers[name]; trigger() }; 
       // chart.update({props: "update", duration: 500});
     } else {
       // put the dataSpec in the pendingData collection, for use by the chart when all
@@ -228,19 +252,21 @@ if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
     vg.parse.spec(spec, function (chartBuilder) {
       // This callback is called from within vg.parse.data, once the data in the spec
       // have been procured.
-      // chart is a viewConstructor, already initialised with width, height,
+      // chartBuilder is a viewConstructor, already initialised with width, height,
       // viewport, padding, marks, data - all derived from the spec.
       // The standard viewConstructor is that returned by vg.ViewFactory().
-      // If called with an el: elem, view.initialize(elem) is invoked and does
-      // the work of setting up a div.vega.  The view is given ._renderer, ._handler etc
+      // If called with an el: elem, view.initialize(elem) is invoked and sets up a child
+      // div.vega element, stored as view._el.  The view is given ._renderer, ._handler etc
       // and the handler (e.g., vg.svg.Handler) records the view (as ._obj).
       // The view's .on method adds to view._handlers a structure { type:, handler:, svg: }
       // and adds the svg part (an svgHandler) to the dom as a listener.
       var selector = ".ggvis-output#" + chartId;
-      var $el = $(selector);
+      var viewDivObj = $(selector);
       // disable the default hover behaviour
       var chart = chartBuilder({ el: selector, hover: false, renderer: renderer });
-      $el.data("ggvis-chart", chart);   // a convenient way to access the View object
+      viewDivObj.data("ggvis-chart", chart);   // a convenient way to access the View object
+      viewDivObj.attr("tabindex",-1);       // allow the element to get focus
+      chart.viewDivObj = viewDivObj;        // a convenient way to get back to the JS element
       livelyRenderedCharts[chartId] = { version: version, chart: chart };
 
       if (!dataSeparate) {
@@ -295,10 +321,17 @@ so then the question is how to send an update to a dataset on which another depe
         return charts;
       }
 
+      function allMarkableElements(chart) {
+        // ael: return a d3 selection with all svg elements that can be marked, within a given chart
+        return d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows });
+      }
+
       function allMarkableItems(chart) {
         // ael: return a collection of all vega-level items that can be marked, within a given chart
         var matches = [];
-        d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows })[0].each(function(el) { matches.push(el.__data__) });
+        allMarkableElements(chart)[0].each(function(el) { matches.push(el.__data__) });
+        // d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows })[0].each(function(el) { matches.push(el.__data__) });
+        // console.log("allMarkableItems: ", matches.length);
         return matches
       }
       
@@ -307,12 +340,14 @@ so then the question is how to send an update to a dataset on which another depe
         //debugger;
         
         var rownumbers = JSON.parse(item.datarows);
+        // console.log(rownumbers[0], item);
         var data_id = item.mark.def.description.datasource;
         var p = data_id.indexOf(":");
         if (p != -1) data_id = data_id.substr(0, p);
         
         var matches = [];
-        d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows && d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
+        // used to be: d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows && d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
+        allMarkableElements(chart).filter(function(d) { return d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
           var item = el.__data__;
           (JSON.parse(item.datarows)).some(function(thisID) {
             if (rownumbers.indexOf(thisID) >= 0) {
@@ -325,53 +360,274 @@ so then the question is how to send an update to a dataset on which another depe
         return matches;
       }
 
+      function scenarioItems(chart, touchedScenario) {
+        var matches = [];
+        allMarkableItems(chart).forEach(function(item) {
+          if (item.scenario == touchedScenario) matches.push( item );
+        });
+        return matches;
+      }
+      
+      // currently called only from unused code
       function movingItems(chart) {
         // ael: return a collection of vega-level items that have initialx, initialy props
         return d3.select(chart._el).selectAll("svg.marks path").filter(function(d) { return d && d.datum && d.datum.data && d.datum.data.initialx })[0].map(function(el) { return el.__data__ });
       }
 
-      function findAndSetScenarioMarks(chart) {
-          var scenarioMarks = [];
-          var indices = [];
-          d3.select(chart._el).selectAll("g").each(function(f) {
-            var el = $(this)[0];
-            var s;
-            try { s = el.firstChild.__data__.mark.def.description.scenario } catch(e) { s = undefined };
-            if (s) {
-              scenarioMarks.push(el);
-              indices.push(s);
-              }
-          });
-          // associate the found marks with the scenario indices
-          d3.selectAll(scenarioMarks).data(indices);
-          return scenarioMarks;
-      }
-    
-      function highlightScenarioMarks(chart, marks, touchedScenario) {
-        var highlightItems = [];
-        var otherItems = [];
-        marks.forEach(function(el) {
-          var s = d3.select(el).data();
-          var nodes = el.childNodes;
-          for ( i=0; i<nodes.length; i++ ) {
-            var item = nodes[i].__data__;
-            if (s == touchedScenario) { highlightItems.push( item );
-            } else { otherItems.push( item ) }
-          }
-        })
-        chart.update({ props: "update", items: otherItems });
-        chart.update({ props: "scenarioHighlight", items: highlightItems });
+      function parseDragSpec(dragSpec) {
+        // a dragSpec has comma-separated components  scale, dataset, column[, triggerName]
+        if (!dragSpec) return null;
+
+        s = dragSpec.split(",");
+        var spec = { scale: s[0], dataset: s[1], column: s[2] };
+        if (s.length>3) spec.triggerName = s[3];
+        return spec;
       }
       
-      chart.dragItem = null;
-      chart.on("mouseover", (function(event, item) {
-        if (this.dragItem) return;
+      function initJogSpec(jogSpec, xSpec, ySpec) {
+        jogSpec.xScale = xSpec && xSpec.scale;
+        jogSpec.yScale = ySpec && ySpec.scale;
+        jogSpec.xColumn = xSpec ? xSpec.column : "-";
+        jogSpec.yColumn = ySpec ? ySpec.column : "-";
+        jogSpec.dataset = (xSpec && xSpec.dataset) || (ySpec && ySpec.dataset);
+        jogSpec.triggerName = (xSpec && xSpec.triggerName) || (ySpec && ySpec.triggerName);
+      }
 
-        var scenarioMarks = findAndSetScenarioMarks(this);
-        if (item.mark && item.mark.def.description && item.mark.def.description.scenario) {
-          var touchedScenario = item.mark.def.description.scenario
-          highlightScenarioMarks(this, scenarioMarks, touchedScenario)
-          // DISABLED: code to sort all scenario marks so the touched one is guaranteed to be on top.  Using this function messed something up, preventing cleanup of the marks.  Figure it out later.
+      function toChartCoords(evtPt, absolute, targetChart, xScale, yScale) {
+        // based on the x and y drag specs of the specified element, turn the 
+        // event point into an abstract point with coords in x and/or y.
+        // if absolute is true, assume we need to subtract the chart origin.
+        var chartTop = 0, chartLeft = 0;
+        if (absolute) {
+          var chartRect = $(targetChart._el).bounds();
+          var padding = targetChart.padding();
+          chartTop = chartRect.top + padding.top;
+          chartLeft = chartRect.left + padding.left;
+        }
+        var chartGroup = targetChart.model().scene().items[0];
+        var xVal, yVal;
+        if (xScale) xVal = chartGroup.scales[xScale].invert(evtPt.x - chartLeft);
+        if (yScale) yVal = chartGroup.scales[yScale].invert(evtPt.y - chartTop);
+        return pt(xVal, yVal);
+      }
+      
+      function setUpParameterRange(chart, parameter, unfilteredValues, triggerName) {
+        // sent by a slider, at the end of a drag
+        if (unfilteredValues.length < 2) return;
+
+        var start = Number(unfilteredValues.first());
+        var end = Number(unfilteredValues.last());
+        var low = Math.min(start, end);
+        var high = Math.max(start, end);
+        var seen = [];
+        var validPositions = unfilteredValues.filter(function(v) {
+          if (seen.indexOf(v) !== -1) return false;
+          seen.push(v);
+          return Number(v) >= low && Number(v) <= high;
+        });
+        var values = validPositions;
+        var jogSpec = chart.nextJogSpec = {};
+        jogSpec.parameter = parameter;
+        jogSpec.triggerName = triggerName;
+        jogSpec.restoreValue = values.last();
+        jogSpec.valueRange = [];
+        jogSpec.scenarios = [];
+        var numPositions = values.length;
+        for (var i=0; i<numPositions; i++) {
+          jogSpec.valueRange.push(values[i]);
+          jogSpec.scenarios.push(i+1);
+        }
+        jogSpec.direction = -1;
+        jogSpec.maxIndex = numPositions - 1;
+        jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
+        jogSpec.bounce = true;
+      }
+      Shiny.setUpParameterRange = setUpParameterRange;
+      
+      function setUpEditRange(chart, item) {
+        // set up a suitable range for a point that has been clicked, rather than dragged.
+        // will be invoked even if the item isn't one for which an edit is valid
+        if (!(item.dragx || item.dragy)) return;  // don't even delete old edit range
+
+        var jogSpec = chart.nextJogSpec = {};
+
+        // figure out x and/or y of the item, and hence the range through which it should be varied
+        var xSpec = parseDragSpec(item.dragx);   // may be null
+        var ySpec = parseDragSpec(item.dragy);   // ditto
+        initJogSpec(jogSpec, xSpec, ySpec);
+        
+        var dataset = jogSpec.dataset;
+        var itemPos = pt(item.x, item.y);        // NB: pixels, relative to chart.
+        jogSpec.restorePoint = toChartCoords(itemPos, false, chart, jogSpec.xScale, jogSpec.yScale);
+        jogSpec.pointRange = [];
+        jogSpec.scenarios = [];
+        if (xSpec && ySpec) {
+          // visit 8 compass directions, in a circle of diameter 0.1*scale in each dimension.
+          var numPositions = 8;  // numbered 0 to 7
+          var chartRect = $(chart._el).bounds();
+          var ratio = 0.1;
+          var xRadius = chartRect.width() * ratio / 2;
+          var yRadius = chartRect.height() * ratio / 2;
+          for (var segment=0; segment<8; segment++) {
+            var angle = segment * Math.PI / 4;
+            var jogPoint = pt(itemPos.x + xRadius*Math.sin(angle), itemPos.y - yRadius*Math.cos(angle)); 
+            var jogChartPoint = toChartCoords(jogPoint, false, chart, jogSpec.xScale, jogSpec.yScale);
+            jogSpec.pointRange.push(jogChartPoint);
+            jogSpec.scenarios.push(segment+1);
+          }
+          jogSpec.index = 0;
+          jogSpec.direction = 1;
+          jogSpec.maxIndex = numPositions - 1;
+          jogSpec.bounce = false;
+        } else {
+          var numPositions = 10;
+          var startPoint = jogSpec.restorePoint;
+          var isXRange = !!startPoint.x;
+          var startVal = 0;
+          var stopVal = isXRange ? startPoint.x : startPoint.y;
+          jogSpec.pointRange = [];
+          jogSpec.scenarios = [];
+          for (var step=0; step<numPositions; step++) {
+            var val = startVal+step*(stopVal-startVal)/(numPositions-1);
+            jogSpec.pointRange.push(isXRange ? pt(val, -1000) : pt(-1000, val));
+            jogSpec.scenarios.push(step+1);
+          }
+          jogSpec.direction = -1;
+          jogSpec.maxIndex = numPositions - 1;
+          jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
+          jogSpec.bounce = true;
+        }
+        jogSpec.xSpec = xSpec;
+        jogSpec.ySpec = ySpec;
+        jogSpec.row = JSON.parse(item.datarows)[0];
+      }
+
+      function startJog(chart) {
+        if (!chart.nextJogSpec) return;
+        console.log("start jog");
+        chart.jogSpec = chart.nextJogSpec;
+        jogStep(chart);
+        // make sure the view has keyboard focus, to allow Escape to stop the jog
+        chart.viewDivObj.focus();
+      }
+      Shiny.startJog = startJog;
+
+      function jogStep(chart) {
+        if (!chart.jogSpec) return;
+        // console.log("jogStep");
+        var jogSpec = chart.jogSpec;
+        if (jogSpec.dataset) {
+          var jogPoint = jogSpec.pointRange[jogSpec.index];
+          sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogPoint ]);
+        } else {
+          var jogValue = jogSpec.valueRange[jogSpec.index];
+          sendParameterMessage(jogSpec.parameter, [ 0 ], [ jogValue ]);
+        }
+        // step to next jog position, taking account of the "bounce" setting
+        var dir = jogSpec.direction;
+        var next = jogSpec.index + dir;  // tentative
+        if (jogSpec.bounce) {
+          if (next < 0) {     // bounce off bottom limit
+            next = 1;
+            dir = 1;
+          } else if (next > jogSpec.maxIndex) {
+            next = jogSpec.maxIndex - 1;  // bounce off top limit
+            dir = -1;
+          }
+        } else {
+          next = next % (jogSpec.maxIndex+1);
+        }
+        jogSpec.index = next;
+        jogSpec.direction = dir;
+        // console.log("set up trigger: ", jogSpec.triggerName)
+        livelyDataTriggers[jogSpec.triggerName] = function() { jogStep(chart) };
+      }
+
+      function endJog(chart) {
+        console.log("======= ending jog ========");
+        var jogSpec = chart.jogSpec;
+        if (jogSpec) {
+          delete livelyDataTriggers[jogSpec.triggerName];
+          if (jogSpec.dataset) {    // it's from a chart-point drag, not a slider
+            sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogSpec.restorePoint ]);
+          } else {
+            sendParameterMessage(jogSpec.parameter, [ 0 ], jogSpec.restoreValue);
+          }
+          delete chart.jogSpec;
+        }
+      }
+
+      function setUpSweep(chart) {
+        if (!chart.nextJogSpec) return;
+
+        if (debug) console.log("set up sweep");
+        var range = chart.nextJogSpec;
+        if (range.dataset) {
+          sendEditMessage(range.dataset, [range.xColumn, range.yColumn], range.row, range.scenarios, range.pointRange);
+        } else { sendParameterMessage(range.parameter, range.scenarios, range.valueRange) }
+      }
+      Shiny.setUpSweep = setUpSweep;
+
+      function sendEditMessage(dataset, xycolumns, row, scenarios, chartPoints) {
+        var args = {};
+        args.type = "data";
+        args.target = { dataset: dataset, row: row, xycolumns: xycolumns };
+        args.scenarios = scenarios;
+        args.values = chartPoints.map(function(cp) {
+          var xy = ["-1000", "-1000"];
+          if (cp.x) xy[[0]] = cp.x.toFixed(2);
+          if (cp.y) xy[[1]] = cp.y.toFixed(2);
+          return xy;
+        });
+        var msg = { message: "edit", args: args };
+        window.Shiny.timestampedOnInputChange("trigger", msg);
+      }
+
+      function sendParameterMessage(parameter, scenarios, values) {
+        var args = { type: "parameter", target: parameter, scenarios: scenarios, values: values };
+        var msg = { message: "edit", args: args };
+        window.Shiny.timestampedOnInputChange("trigger", msg);
+      }
+      
+      //viewDivObj.on("blur", function() { if (debug) console.log("div blur") });
+      //viewDivObj.on("focus", function() { if (debug) console.log("div focus") });
+      viewDivObj.on("mouseover", function() { viewDivObj.focus() });  // every time - ok??
+
+      viewDivObj.on("keydown", (function(evt) {
+        // console.log(evt.keyCode);
+        if (evt.keyCode === Event.KEY_ESC) {
+          console.log("ESCAPE");
+          endJog(this.data("ggvis-chart"));
+          return false;
+        }
+        if (evt.keyCode === Event.KEY_TAB) {
+          console.log("TAB");
+          var direction = evt.shiftKey ? -1 : 1;
+          window.Shiny.timestampedOnInputChange("trigger", { message: "visitScenario", args: direction });
+          return false;
+        }
+      }).bind(viewDivObj));
+      
+      viewDivObj.on("keyup", (function(evt) {
+        // console.log("up", evt);
+      }).bind(viewDivObj));
+
+      viewDivObj.on("keypress", (function(evt) {
+      }).bind(viewDivObj));
+
+      chart.dragItem = null;
+      chart.on("mouseover", (function(evt, item) {
+        // NB: this is not a morphic event - so to look at the position, use pageX & pageY
+        if (this.dragItem) return;
+        
+        // look for some scenario highlighting to do
+        var touchedScenario = item.scenario;
+        if (touchedScenario) {  // won't trigger on scenario 0, which is probably fine...?
+          allCharts().forEach(function(ch) {
+            ch.update({ props: "update", items: allMarkableItems(ch) });
+            ch.update({ props: "scenarioHighlight", items: scenarioItems(ch, touchedScenario) });
+          });
+          // DISABLED: code to sort all scenario marks so the touched one is guaranteed to be on top.  Using this function messed something up, preventing cleanup of the marks.  Might now be fixed for marks that use non-index keys for their elements.
           //d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
         } else if (item.datarows) {
           // hack that used to let us disable brushing on main-scenario histogram when scenarios are being shown:
@@ -380,12 +636,15 @@ so then the question is how to send an update to a dataset on which another depe
             ch.update({ props: "highlight", items: relatedItems(ch, item) })
           });
         }
+
       }).bind(chart));
+
       function restoreAllMarks() {
           allCharts().forEach(function(ch) {
             ch.update({ props: "update", items: allMarkableItems(ch) });
           });
       }
+      
       chart.highlightDragItems = (function () {
           if (this.dragItem) {
             var dragItem = this.dragItem;
@@ -394,15 +653,86 @@ so then the question is how to send an update to a dataset on which another depe
             });
           }
       }).bind(chart);
-      chart.endDrag = (function () {
+      
+      chart.endDrag = (function (xSpec, ySpec, row, dragPositions, dragType) {
+        // derive a range of positions from a completed drag.
+        // if dragType is "jog" or "sweep", set that up.
         this.dragItem = null;
         restoreAllMarks();
+        if (!this.lastMouseWasDrag) return;
+
+        var minDiff = 8;          // pixels, in either direction
+        var start = dragPositions.first();
+        var end = dragPositions.last();
+        var xDiff = start.x ? end.x - start.x : 0;
+        var yDiff = start.y ? end.y - start.y : 0;
+        var nSteps = Math.floor(Math.min(Math.max(Math.abs(xDiff), Math.abs(yDiff)) / minDiff, 9));
+        if (nSteps == 0) return;
+        var xStep = xDiff / nSteps;
+        var yStep = yDiff / nSteps;
+        var chartPoints = [];
+        var scenarios = [];
+        var jogSpec = this.nextJogSpec = {};
+        initJogSpec(jogSpec, xSpec, ySpec);
+        for (var s = 0; s <= nSteps; s++) {
+          var evtPt = pt(start.x + (s*xStep), start.y + (s*yStep));
+          chartPoints.push(toChartCoords(evtPt, true, this, jogSpec.xScale, jogSpec.yScale));
+          scenarios.push(s+1);
+        }
+        jogSpec.row = row;
+        jogSpec.pointRange = chartPoints;
+        jogSpec.scenarios = scenarios;
+        jogSpec.restorePoint = chartPoints.last();
+        jogSpec.direction = -1;
+        jogSpec.maxIndex = nSteps;
+        jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
+        jogSpec.bounce = true;
+
+        if (dragType) {         // a raw click does nothing at this point
+          var self = this;
+          var setUp = function() {
+            if (dragType=="jog") startJog(self);
+            else setUpSweep(self);
+            }
+          if (this.jogItem) {
+            endJog(this);        // clear any existing jog
+            setTimeout(setUp, 200);  // and give it a chance to settle
+          } else setUp();
+        }
       }).bind(chart);
-      chart.on("mouseout", (function(event, item) {
+      
+      chart.sortScenarioItems = (function () {
+        // sort such that scenario 0's marks come at the end
+        if (debug) console.log("sorting");
+        // NB: we reject items that appear to have been assigned index-based keys by vega, because changing their order causes Vega to lose track of them
+        d3.select(this._el).selectAll("svg.marks rect, svg.marks path").filter(function(d) { return d && (d.scenario!==undefined) && !(d.key.toFixed)}).sort(function(a,b) { return b.scenario-a.scenario } );
+      }).bind(chart);
+      
+      chart.on("mouseout", (function(evt, item) {
         if (this.dragItem) return;
         if (item.datarows) restoreAllMarks();
       }).bind(chart));
 
+      chart.on("click", (function(evt, item) {  // NB: non-morphic event
+        if (this.lastMouseWasDrag) return;      // this is just the mouse-up after a drag
+
+        var clickType;
+        if (evt.shiftKey) clickType = "jog";
+        else if (evt.altKey) clickType = "sweep";
+        if (clickType) {         // a raw click does nothing
+          var self = this;
+          var clickResponse = function() {
+            setUpEditRange(self, item);
+            if (clickType=="jog") startJog(self);
+            else setUpSweep(self);
+            }
+          if (this.jogItem) {
+            endJog(this);        // clear any existing jog
+            setTimeout(clickResponse, 200);  // and give it a chance to settle
+          } else clickResponse();
+        }
+      }).bind(chart));
+        
       chart.on("mousedown", (function (evt, item) {
         // dragx and dragy are comma-separated strings of the form
         //    scaleName,datasetName,columnName  (e.g. x,workingData,wt)
@@ -417,18 +747,16 @@ so then the question is how to send an update to a dataset on which another depe
                 [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize)], 2, Color.black, Color.black);
 
           this.dragItem = item;
-          handle.lastDragPos = evt.getPosition();
+          this.lastMouseWasDrag = false;
+          handle.dragStartPos = handle.lastDragPos = evt.getPosition();
+          handle.dragPositions = [handle.dragStartPos];
           handle.itemRow = JSON.parse(item.datarows)[0];
           handle.chart = this;
           
-          function toList(dragSpec) {
-            s = dragSpec.split(",");
-            return { scale: s[0], dataset: s[1], column: s[2] }
-          }
-          if (item.dragx) handle.xSpec = toList(item.dragx);
-          if (item.dragy) handle.ySpec = toList(item.dragy);
-          var dataset = (handle.xSpec && handle.xSpec.dataset) || (handle.ySpec && handle.ySpec.dataset);
-          if (dataset == "trialLine") {
+          handle.xSpec = parseDragSpec(item.dragx);   // may be null
+          handle.ySpec = parseDragSpec(item.dragy);   // ditto
+          var dataset = handle.dataset = (handle.xSpec && handle.xSpec.dataset) || (handle.ySpec && handle.ySpec.dataset);
+          if (dataset == "guessMList") {
             // HACK
             window.Shiny.shinyapp.sendInput({"showPopup": "TRUE"});
             $world.get("ShinyGigvisMorph1").popupChartMorph(3);
@@ -436,119 +764,69 @@ so then the question is how to send an update to a dataset on which another depe
           var msg = { message: "startEdit", args: [ dataset ] };
           window.Shiny.onInputChange("trigger", JSON.stringify(msg));
 
-          // handle.onBlur = function() { debugger; }
-
-          handle.addScript(function toChartCoords(evtPt) {
-            var targetChart = this.chart;
-            var chartRect = $(targetChart._el).bounds();
-            var padding = targetChart.padding();
-            var chartTop = chartRect.top + padding.top;
-            var chartLeft = chartRect.left + padding.left;
-            var chartGroup = targetChart.model().scene().items[0];
-            var xVal, yVal;
-            if (this.xSpec) {
-              xVal = chartGroup.scales[this.xSpec.scale].invert(evtPt.x - chartLeft);
-            }
-            if (this.ySpec) {
-              yVal = chartGroup.scales[this.ySpec.scale].invert(evtPt.y - chartTop);
-            }
-            return pt(xVal, yVal);
-          }).bind(handle);
-
+          // handle.onFocus = function() { console.log("handle focus") }
+          // handle.onBlur = function() { console.log("handle blur") }
+          
           handle.throttledDragHandler = Functions.throttle((function(evt) {
             var evtPos = evt.getPosition();
             this.lastDragPos = evtPos;
+            this.dragPositions.push(evtPos);
+            this.chart.lastMouseWasDrag = true;
             if (this.rangeLine) {
               var vs = this.rangeLine.vertices();
               vs[1] = vs[0].addPt(evtPos.subPt(this.rangeStartPos));
               this.rangeLine.setVertices(vs);
             }
-
-            var args = [];
-            var msg = { message: "editData", args: args };
-            var chartPt = this.toChartCoords(evtPos);
-            if (chartPt.x) {
-              args.push( { dataset: this.xSpec.dataset, column: this.xSpec.column, row: this.itemRow, value: chartPt.x.toFixed(2), xy: "x" } );
-            }
-            if (chartPt.y) {
-              args.push( { dataset: this.ySpec.dataset, column: this.ySpec.column, row: this.itemRow, value: chartPt.y.toFixed(2), xy: "y" } );
-            }
-            window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+            var xScale = this.xSpec && this.xSpec.scale;
+            var yScale = this.ySpec && this.ySpec.scale;
+            var xColumn = this.xSpec ? this.xSpec.column : "-";
+            var yColumn = this.ySpec ? this.ySpec.column : "-";
+            sendEditMessage(this.dataset, [xColumn, yColumn], this.itemRow, [0], [toChartCoords(evtPos, true, this.chart, xScale, yScale)]);
           }).bind(handle), 200);
 
           handle.addScript(function onDrag(evt) {
+            this.focus();  // just to make sure
             this.throttledDragHandler(evt);
           }).bind(handle);
 
           handle.addScript(function onKeyDown(evt) {
-            if (evt.getKeyCode() === Event.KEY_SHIFT) {
-              this.rangeStartPos = this.lastDragPos;
-              var line = lively.morphic.Morph.makeLine([this.rangeStartPos, this.rangeStartPos]).applyStyle({borderWidth: 2, borderColor: Color.red});
-              this.rangeLine = $world.addMorph(line);
-              this.focus();
-            } else if (evt.getKeyCode() === Event.KEY_TAB) {
+            if (evt.getKeyCode() === Event.KEY_TAB) {
               // couldn't figure out whether there's a combination of stopPropagation etc
               // to allow the tab press to appear to onKeyPress.  So we deal with it here.
-              console.log("tab down");
-              console.log(evt.isShiftDown() ? " shifted" : " unshifted");
+              var direction = evt.isShiftDown() ? -1 : 1;
+              window.Shiny.timestampedOnInputChange("trigger", { message: "visitScenario", args: direction });
               evt.stop();
               return false;
             }
           }).bind(handle);
 
-          handle.addScript(function onKeyUp(evt) {
-            if (evt.getKeyCode() === Event.KEY_SHIFT) {
-              if (!this.rangeStartPos) return;
-              if (this.rangeLine) { this.rangeLine.remove(); delete this.rangeLine };
-              var minDiff = 8;          // pixels, in either direction
-              var start = this.rangeStartPos;
-              var end = this.lastDragPos;
-              var xDiff = start.x ? end.x - start.x : 0;
-              var yDiff = start.y ? end.y - start.y : 0;
-              var nSteps = Math.floor(Math.min(Math.max(Math.abs(xDiff), Math.abs(yDiff)) / minDiff, 9));
-              if (nSteps == 0) return;
-              var xStep = xDiff / nSteps;
-              var yStep = yDiff / nSteps;
-              var steps = [];
-              for (var s = 0; s <= nSteps; s++) {
-                var interPos = pt(start.x + (s*xStep), start.y + (s*yStep));
-                var chartPt = this.toChartCoords(interPos); 
-                steps.push(chartPt);
-              }
-              //console.log(steps);
-              if (this.whichDataset() == "trialLine") {
-                var isLeft = this.itemRow == 1;
-                var parm = isLeft ? "trialLeft" : "trialRight";
-                var values = steps.map(function (s) { return Number(s.y.toFixed(2)) });
-                var msg = { message: "setScenarios", args: [ parm, values ] };
-                window.Shiny.onInputChange("trigger", JSON.stringify(msg));
-              }
-            }
+          handle.onKeyUp = (function onKeyUp(evt) {
+            if (evt.getKeyCode() === -1000 /* Event.KEY_SHIFT */) { } // disabled
           }).bind(handle);
 
           handle.addScript(function onKeyPress(evt) {
             // console.log(evt.charCode);
           }).bind(handle);
 
-          handle.addScript(function whichDataset() {
-            return (this.xSpec && this.xSpec.dataset) || (this.ySpec && this.ySpec.dataset);
-          }).bind(handle);
-          
-          handle.addScript(function onDropOn(evt) {
-            var dataset = this.whichDataset();
-            if (dataset == "trialLine") {
+          handle.addScript(function onDropOn(morph) {
+            if (this.dataset == "guessMList") {
               // HACK
               window.Shiny.shinyapp.sendInput({"showPopup": "FALSE"});
               $world.get("GigvisPopup3").remove();
             };
-            var msg = { message: "endEdit", args: [ dataset ] };
+            var msg = { message: "endEdit", args: [ this.dataset ] };
             window.Shiny.onInputChange("trigger", JSON.stringify(msg));
             if (this.rangeLine) this.rangeLine.remove();
             this.remove();
-            this.chart.endDrag();
+            var evt = Global.event;          // hack?
+            var dragType = null;
+            if (evt.isShiftDown()) dragType = "jog";
+            else if (evt.isAltDown()) dragType = "sweep";
+            this.chart.endDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, dragType);
           }).bind(handle);
-          handle.getGrabShadow = function() { return null };
           
+          handle.getGrabShadow = function() { return new lively.morphic.Morph() };
+
           //evt.hand.getPosition()
           evt.hand.grabMorph(handle, evt);
           handle.setPosition(pt(-4,-4));

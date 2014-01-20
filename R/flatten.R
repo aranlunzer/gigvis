@@ -31,7 +31,7 @@ flatten <- function(node, parent = NULL, session = NULL) {
     # ael TODO: one day remove datasource handling if pipeline_id proves to be enough
     prop_list <- as.list(node$props)
     if (!is.null(prop_list$sharedProvenance)) {
-      provenance <- as.list(fromJSON(prop_list$sharedProvenance$value)) 
+      provenance <- as.list(fromJSON(prop_list$sharedProvenance$value, asText=TRUE)) 
       if (!is.null(provenance$datasource))
         node$datasource_id <- provenance$datasource
     }

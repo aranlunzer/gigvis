@@ -60,7 +60,7 @@ is_source.datasource <- function(x) TRUE
 #' so that different data subsets are distinguishable by their pipeline ids
 pipe_id.datasource <- function(x, props) {
   # paste0(x$name, "_", x$hash)  # original version
-  if (is.null(props)) {
+  if (is.null(props) || !isTRUE(getOption('shiny.withlively'))) {
     paste0(x$name, "/", x$hash, "/")
   } else {
     # now that props can be expressions such as   ~time + 1   we need to concat their strings.

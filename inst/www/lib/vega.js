@@ -2355,7 +2355,9 @@ var vg_gradient_id = 0;vg.canvas = {};vg.canvas.path = (function() {
 
     var id = p.attr("id"),
         s = "#" + id + " > " + tag,
-        m = p.selectAll(s).data(data),
+        // ael: add handling for an item key, if specified
+        // original: m = p.selectAll(s).data(data),
+        m = p.selectAll(s).data(data, function(d,i) { return d.key || i }),
         e = m.enter().append(tag);
 
     if (notG) {

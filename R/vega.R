@@ -106,14 +106,24 @@ as.vega.mark <- function(mark) {
   properties$ggvis <- list()
   if (mark$type == "symbol" || mark$type == "rect") {
     # as.vega.ggvis_props() defaults to attaching properties to "update"
-    properties$highlight <- as.vega(props(fill:="red"))$update
-    properties$scenarioHighlight <- as.vega(props(fill:="green", fillOpacity:=0.75))$update
+    properties$highlight <- as.vega(props(fill:="orange"))$update
+    properties$scenarioHighlight <- as.vega(props(fillOpacity:=0.75))$update
   }
   # ael: provide a default faded "enter" on symbol and line marks
   if (is.null(properties$enter) && (mark$type == "symbol" || mark$type == "line")) {
     properties$enter <- as.vega(props(opacity:=0.25))$update
   }
-  
+  # ael: add description, which is now partially replicated by the "from" annotation
+  description <- list()
+  if (!is.null(sharedProvenance)) {
+    description <- as.list(fromJSON(sharedProvenance$value, asText=TRUE))
+  }
+  if (!is.null(mark$datasource_id)) {
+    description$datasource <- mark$datasource_id
+  } else {
+    description$datasource <- data
+  }
+    
   # HW: It seems less than ideal to have to inspect the data here, but
   # I'm not sure how else we can figure it out.
   split <- is.split_df(isolate(mark$pipeline()))
@@ -128,6 +138,7 @@ as.vega.mark <- function(mark) {
       marks = list(
         list(
           type = mark$type,
+          description = description,
           properties = properties
         )
       )
@@ -136,17 +147,6 @@ as.vega.mark <- function(mark) {
   } else {
     data <- mark$pipeline_id
     properties$ggvis$data <- list(value = data)
-
-    # ael: add description, which is now partially replicated by the "from" annotation
-    description <- list()
-    if (!is.null(sharedProvenance)) {
-      description <- as.list(fromJSON(sharedProvenance$value))
-    }
-    if (!is.null(mark$datasource_id)) {
-      description$datasource <- mark$datasource_id
-    } else {
-      description$datasource <- data
-    }
 
     m <- list(
       type = mark$type,
