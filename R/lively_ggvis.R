@@ -118,7 +118,8 @@ view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, rende
     if (try == 3) stop("Can't find a free port")
   }
   
-  runApp(list(ui = ui, server = server), port=port, launch.browser=FALSE)
+  # host=NULL to allow connections from outside
+  runApp(list(ui = ui, server = server), port=port, host=NULL, launch.browser=FALSE)
 }
 
 # ael: this is called once per ggvis chart.  Its main argument is a reactive
