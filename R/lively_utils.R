@@ -77,9 +77,11 @@ provenanceValue <- function(...) {
 
 predictOnLine <- function(trialdata, realdata, giveme="vert"){
   # expects trialdata and realdata to be DFs with columns x, y.
-  # returns a DF with columns x, y
+  # returns a DF with columns x, y - or NA if prediction is impossible
   slope <- (trialdata$y[1] -trialdata$y[2])/(trialdata$x[1] -trialdata$x[2])
   intercept <- trialdata$y[1] - slope*trialdata$x[1]
+  if (!is.finite(slope) || !is.finite(intercept)) return(NA);
+
   if (giveme=="vert" || (giveme=="perp" && slope==0)){
     y <- slope*realdata$x + intercept
     return(data.frame(x=realdata$x, y=y))
@@ -115,6 +117,8 @@ resLines <- function(trialdata, realdata, giveme="vert"){
   resdf$x <- NULL
   resdf$y <- NULL
   predictions <- predictOnLine(trialdata, realdata, giveme)
+  if (identical(predictions, NA)) return(NA)
+
   for(i in 1:dim(realdata)[1]){
     resdf$x <- c(resdf$x, realdata$x[i], predictions$x[i])
     resdf$y <- c(resdf$y, realdata$y[i], predictions$y[i])
@@ -131,13 +135,21 @@ transform_edit <- function(data, rows, columns, replacement_values){
 }
 
 # ael
-dataBins <- function(data, property, binwidth, binoffset) {
-  if (nrow(data)==0) emptyBins
+dataBins <- function(data, property, binwidth, binoffset, blended=FALSE) {
+  # "blended" just means turning off the prominence - of the default-scenario histogram.
+  # if there is a histogram sweep, this means making it disappear.  otherwise just lose
+  # the outline.
+  if (nrow(data)==0) emptyBins()
   else {
-    bins <- sluice(transform_bin(binwidth=binwidth, origin=binoffset),
+    bins <- compute(transform_bin(binwidth=binwidth, origin=binoffset),
             props(x=prop(as.name(property))),
             data)
     bins$keyField = as.character(1:nrow(bins))
+    # NB: strokeWidth and fillOpacity are both ignored on the sweep histograms
+    bins$strokeWidth = if (blended) 0 else 1
+    bins$fillOpacity = if (blended &&
+                            (length(isolate(gvSweep$binwidth))>0 || length(isolate(gvSweep$binoffset))>0))
+                          0 else 0.3
     bins
   }
 }
@@ -146,11 +158,14 @@ resLinesInChartDomain <- function(trialdata, realdata, xProp, yProp, giveme="ver
   # NB we expect trialdata to have columns chartx, charty - whereas from realdata we have
   # to extract the columns specified as xProp and yProp.
   # the result is returned with chartx, charty columns.
-  if (is.null(trialdata) || is.null(realdata)) return(NULL);
+  if (is.null(trialdata) || is.null(realdata)) return(emptySplit);
+
   tempReal <- data.frame(x=realdata[[xProp]], y=realdata[[yProp]])
   tempTrial <- data.frame(x=trialdata$chartx, y=trialdata$charty)
-  res <- setNames(resLines(tempTrial, tempReal, giveme), c("chartx", "charty"))
-  #res$item <- gl(nrow(realdata),2)
+  res <- resLines(tempTrial, tempReal, giveme)
+  if (identical(res, NA)) return(emptySplit)
+  
+  res <- setNames(res, c("chartx", "charty"))
   res$item <- rep(1:nrow(realdata), each=2)
   split_df(res, quote(item), env=NULL)
 }
@@ -164,6 +179,8 @@ lmLine <- function(realdata, xProp, yProp) {
   lmRes <- lm(realdata[[yProp]] ~ realdata[[xProp]], qr=FALSE)
   slope <- lmRes$coefficients[[2]]
   intercept <- lmRes$coefficients[[1]]
+  if (!is.finite(slope) || !is.finite(intercept)) return(emptySplit)  # e.g. if all x values are same
+  
   maxX <- max(realdata[[xProp]])
   df <- data.frame(chartx=c(0, maxX*2), charty=c(intercept, intercept+(slope*maxX*2)), stroke=c("red","red"), grouping=c(1,1))
   split_df(df, quote(grouping), env=NULL)
@@ -176,22 +193,38 @@ demingLine <- function(realdata, xProp, yProp) {
   demingRes <- Deming(realdata[[xProp]], realdata[[yProp]])
   slope <- demingRes[["Slope"]]
   intercept <- demingRes[["Intercept"]]
+  if (!is.finite(slope) || !is.finite(intercept)) return(emptySplit)
+
   maxX <- max(realdata[[xProp]])
   df <- data.frame(chartx=c(0, maxX*2), charty=c(intercept, intercept+(slope*maxX*2)), stroke=c("red","red"), grouping=c(1,1))
   split_df(df, quote(grouping), env=NULL)
 }
 
-smoothLine <- function(realdata, xProp, yProp, n) {
+emptySmoothLine <- function() {
+  customiseAndSplitDF(list(chartx=c(-1000), charty=c(-1000)), list(y_lower__=0, y_upper__=0))
+}
+
+emptyBins <- function() {
+  df <- compute(transform_bin(binwidth=0.5), props(x=~chartx), emptyData)
+  df$strokeWidth <- 0
+  df$fillOpacity <- 0
+  df
+}
+
+smoothLine <- function(realdata, xProp, yProp, n, se) {
   # provide a line from x=0 to x=max(x)*2
-  if (nrow(realdata)<3) return(emptySplit)
+  if (nrow(realdata)<3) return(emptySmoothLine())
 
   # for some reason this slows dramatically when number of data rows is below about 6
-  time <- system.time(smoothRes <- sluice(
-    transform_smooth(method="loess", n=n, formula=y~x, se=FALSE),  # or loess
+  df <- compute(
+    transform_smooth(method="loess", n=n, formula=y~x, se=se),
     props(x=prop(as.name(xProp)), y=prop(as.name(yProp))),
-    realdata))
+    realdata)
   # debugLog(paste(nrow(realdata), time[["elapsed"]], sep=" : "))
-  df <- data.frame(chartx=smoothRes$x, charty=smoothRes$y, grouping=1)
+  # caller expects chartx and charty in place of x and y
+  names(df)[1] <- "chartx"
+  names(df)[2] <- "charty"
+  df$grouping <- 1
   split_df(df, quote(grouping), env=NULL)
 }
 
@@ -369,7 +402,7 @@ bindSweepSplitDFs <- function(dfs, colourProperty, requiredCols=list()) {
 
 bindSweepBinDFs <- function(dfs, colourProperty, requiredCols=list()) {
   if (length(dfs)==0) {
-    customiseAndSplitDF(emptyBins, requiredCols)
+    customiseAndSplitDF(emptyBins(), requiredCols)
   } else {
     pieces <- dfs
     colouredPieces <- lapply(1:length(pieces), function(pi) {
@@ -512,6 +545,26 @@ range_controls <- function(editedBase, rangeML) {
   data.frame(df)
 }
 
+setXYDataStatics <- function(workingData, xProp, yProp) {
+  baseData <- gvStatics$baseData
+  update_static("maxX", max(baseData[[xProp]]))
+  update_static("standardBin", gvStatics$maxX*0.2)
+  update_static("maxY", max(baseData[[yProp]]))
+  update_static("popupYRange", gvStatics$maxY*1.2)
+
+  xMean <- xLowSD <- xHighSD <- NA
+  if (gvSwitches$showXSDLines && nrow(workingData)>1) {
+    xCol <- workingData[[xProp]]
+    xSD <- sd(xCol)
+    xMean <- mean(xCol)
+    xLowSD <- xMean - xSD
+    xHighSD <- xMean + xSD
+  }
+  update_static("xMean", xMean)
+  update_static("xLowSD", xLowSD)
+  update_static("xHighSD", xHighSD)
+}
+
 range_lines <- function(rangeControls) {
   # turn the dataset provided by range_controls into a df for showing lines on the 
   # chart for edited min/max values.  we need up to four lines, corresponding to the
@@ -540,6 +593,20 @@ range_lines <- function(rangeControls) {
   else customiseAndSplitDF(list(chartx=c(-1000,-1001), charty=c(-1000,-1001)), list(strokeDash="4,4", strokeWidth=1))
 }
 
+xSDLines <- function() {
+  # produce two lines for 1 SD each side of the x mean
+  if (is.na(gvStatics$xMean)) customiseAndSplitDF(list(chartx=c(-1000,-1001), charty=c(-1000,-1001)), list(strokeDash="4,4", strokeWidth=1))
+  else {
+    topY <- gvStatics$maxY * 1.1
+    df <- NULL
+    df$chartx <- c(gvStatics$xLowSD, gvStatics$xLowSD, gvStatics$xHighSD, gvStatics$xHighSD)
+    df$charty <- c(0, topY, 0, topY)
+    df$grouping <- c(1, 1, 2, 2)
+    df$strokeDash <- rep("2,8", 4)
+    split_df(data.frame(df), quote(grouping), env=NULL)
+  }
+}
+
 scatterPlotWithSweep <- function() {
   # build a df for a scatter plot, potentially in the presence of a sweep on either
   # the data edits or the ROIs (but not both)
@@ -549,6 +616,8 @@ scatterPlotWithSweep <- function() {
   fullOpacity <- 1.0
   reducedOpacity <- 0.4
   zeroOpacity <- 0.0
+  fullColour <- "black"
+  paleColour <- "gray"
 
   # first, figure out which scenarios have edits, and which have ROI settings.
   # if there is an edit sweep, one or more base-data rows will have additional rows in the
@@ -574,9 +643,17 @@ scatterPlotWithSweep <- function() {
   unchangedOnPlot <- (scatterDF[[xProp]] == baseData[[xProp]]) & (scatterDF[[yProp]] == baseData[[yProp]])
   scatterDF$dotShape <- ifelse(unchangedOnPlot, "circle", "diamond")
   defMask <- isolate(gvDefault$workingDataMask)
+  if (isolate(gvSwitches$showXSDLines)) {
+    if (!is.na(gvStatics$xMean)) {  # if there are enough data rows to define mean & SD
+      lowSD <- gvStatics$xLowSD
+      highSD <- gvStatics$xHighSD
+      scatterXCol <- scatterDF[[xProp]]
+      coreMask <- scatterXCol>=lowSD & scatterXCol<=highSD
+      scatterDF$dotColour <- ifelse(coreMask, fullColour, paleColour)
+    } else scatterDF$dotColour <- paleColour  # there aren't
+  } else scatterDF$dotColour <- fullColour
   scatterDF$dotSize <- ifelse(defMask, fullSize, minimalSize)
   scatterDF$dotOpacity <- ifelse(defMask, fullOpacity, zeroOpacity)
-  scatterDF$dotColour <- "black"  # ditto; used for stroke and for fill
   scatterDF$scenario <- 0
 
   # now for the sweep scenarios.  if there's an edit sweep, prepare and append a partial
@@ -586,6 +663,7 @@ scatterPlotWithSweep <- function() {
     sweepMasks <- isolate(gvSweep$workingDataMask)
     sweepData <- isolate(gvSweep$unfilteredWorkingData)
     editRows <- as.numeric(names(sweepEdits[[1]]))
+    scatterDF[editRows, "dotColour"] <- "green"
     editRowBase <- baseData[editRows,]  # a df with just those rows
     for (s in 1:gvStatics$numScenarios) {
       scenEdits <- sweepEdits[[s]]
@@ -614,7 +692,7 @@ scatterPlotWithSweep <- function() {
   scatterDF
 }
 
-transitionDataFrame <- function(data, dummy) {
+transitionDataFrame <- function(data) {
   # return a data frame with columns "initialx", "initialy" in which values in the 
   # prevXProp column of the supplied dataset are scaled so they will appear at the same
   # relative positions on the newXProp scale; ditto for prevYProp.
@@ -628,17 +706,11 @@ transitionDataFrame <- function(data, dummy) {
     (!is.null(prevYProp) && (prevYProp != newYProp))
   # debugLog(paste(prevXProp, prevYProp, newXProp, newYProp, sep=" "))
   debugLog(paste0("rescaled X or Y: ", rescaled))
-  if (rescaled || is.na(gvStatics$maxX)) {      # new variables, including first time through
-    baseData <- gvStatics$baseData
-    update_static("maxX", max(baseData[[newXProp]]))
-    update_static("maxY", max(baseData[[newYProp]]))
-    update_static("standardBin", gvStatics$maxX*0.2)
-    update_static("popupYRange", gvStatics$maxY*1.2)
+  if (rescaled) {
     update_static("xPropHistory", newXProp)     # for next time
     update_static("yPropHistory", newYProp)
-  }
-  if (rescaled) {
-    movingRows <- totalRows <- nrow(data)
+
+    movingRows <- totalRows <- nrow(data)   # used to draw a distinction, but no longer needed
     df <- data[1:movingRows,]
     prevX <- prevXProp
     prevY <- prevYProp
@@ -715,6 +787,21 @@ handleTriggerMessage <- function(msg) {
     gvSwitches$yProp <- tmp
   } else if (msg$message == "visitScenario") {
     visitNextScenario(as.numeric(msg$args))
+  } else if (msg$message == "clearControl") {
+    # args are [ dataset, row, column ]
+    args <- msg$args
+    dataset <- args$dataset
+    row <- args$row
+    column <- args$column
+    if (dataset=="workingDataRanges" && row>2) row <- row - 2
+    editML <- isolate(gvDefault[[dataset]])
+    rowIndex <- as.character(row)
+    rowList <- editML[[rowIndex]]
+    if (!is.null(rowList)) {
+      rowList[[column]] <- NULL
+      editML[[rowIndex]] <- rowList
+      gvDefault[[dataset]] <- editML
+    }
   } else if (msg$message == "edit") {
     # now always a single command (rather than potentially x/y commands bundled into one message).
     # the command has a "type" (data/parameter) and a "target"

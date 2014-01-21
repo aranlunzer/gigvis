@@ -591,8 +591,11 @@ so then the question is how to send an update to a dataset on which another depe
       
       //viewDivObj.on("blur", function() { if (debug) console.log("div blur") });
       //viewDivObj.on("focus", function() { if (debug) console.log("div focus") });
-      viewDivObj.on("mouseover", function() { viewDivObj.focus() });  // every time - ok??
-
+      viewDivObj.on("mouseover", function() {
+        // grab focus if this is a chart that wants it, and there isn't currently a drag
+        if (viewDivObj.attr("livelyautofocus")=="true" && !viewDivObj.data("ggvisChart").dragItem) viewDivObj.focus();
+      });
+      
       viewDivObj.on("keydown", (function(evt) {
         // console.log(evt.keyCode);
         if (evt.keyCode === Event.KEY_ESC) {
@@ -659,25 +662,68 @@ so then the question is how to send an update to a dataset on which another depe
         // if dragType is "jog" or "sweep", set that up.
         this.dragItem = null;
         restoreAllMarks();
-        if (!this.lastMouseWasDrag) return;
+        this.defineSweepFromDrag(xSpec, ySpec, row, dragPositions, dragType);
+      }).bind(chart);
 
+      chart.defineSweepFromDrag = (function (xSpec, ySpec, row, dragPositions, dragType) {
+        if (!this.lastMouseWasDrag) return;  // was only a click, not a drag
+
+        this.nextJogSpec = null;             // it was a drag, so cancel any previous one
+        if (dragPositions.length<2) return;  // but not a drag that we can use
+
+        var linearise = false;    // config: whether to draw a straight line from start to end 
         var minDiff = 8;          // pixels, in either direction
-        var start = dragPositions.first();
-        var end = dragPositions.last();
-        var xDiff = start.x ? end.x - start.x : 0;
-        var yDiff = start.y ? end.y - start.y : 0;
-        var nSteps = Math.floor(Math.min(Math.max(Math.abs(xDiff), Math.abs(yDiff)) / minDiff, 9));
-        if (nSteps == 0) return;
-        var xStep = xDiff / nSteps;
-        var yStep = yDiff / nSteps;
         var chartPoints = [];
         var scenarios = [];
-        var jogSpec = this.nextJogSpec = {};
-        initJogSpec(jogSpec, xSpec, ySpec);
-        for (var s = 0; s <= nSteps; s++) {
-          var evtPt = pt(start.x + (s*xStep), start.y + (s*yStep));
-          chartPoints.push(toChartCoords(evtPt, true, this, jogSpec.xScale, jogSpec.yScale));
-          scenarios.push(s+1);
+        var jogSpec = {};
+        initJogSpec(jogSpec, xSpec, ySpec);  // extract dataset, scales etc
+        if (linearise) {
+          var start = dragPositions.first();
+          var end = dragPositions.last();
+          var xDiff = start.x ? end.x - start.x : 0;
+          var yDiff = start.y ? end.y - start.y : 0;
+          var nSteps = Math.floor(Math.min(Math.max(Math.abs(xDiff), Math.abs(yDiff)) / minDiff, 9));
+          if (nSteps == 0) return;
+          var xStep = xDiff / nSteps;
+          var yStep = yDiff / nSteps;
+          for (var s = 0; s <= nSteps; s++) {
+            var evtPt = pt(start.x + (s*xStep), start.y + (s*yStep));
+            chartPoints.push(toChartCoords(evtPt, true, this, jogSpec.xScale, jogSpec.yScale));
+            scenarios.push(s+1);
+          }
+        } else {
+          // evenly space along the user's drag path, for up to 10 scenarios
+          calcDist = function(a, b) { var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx + dy*dy) };
+          var aggDists = [0];           // aggregate distances from start
+          var prev = dragPositions[0];
+          var dist = 0;
+          for (var i=1; i<dragPositions.length; i++) {
+            var next = dragPositions[i];
+            dist += calcDist(prev, next);
+            aggDists.push(dist);
+            prev = next;
+          }
+          var nSteps = Math.floor(Math.min(dist / minDiff, 9));
+          if (nSteps == 0) return;
+          
+          var distStep = dist / nSteps;
+          var aggInd = 0;
+          for (var s=0; s<=nSteps; s++) {
+            var nextDist = s*distStep;
+            // find the first aggregate distance that is at least nextDist along the path
+            for (; aggInd<aggDists.length && aggDists[aggInd]<nextDist; aggInd++) {}
+            aggInd = Math.min(aggInd, aggDists.length-1);    // allow for precision error
+            var nextPoint;
+            if (Math.abs(aggDists[aggInd] - nextDist)<0.5) nextPoint = dragPositions[aggInd]; // a hit, to sub-pixel accuracy
+            else {
+              var ratio = (nextDist-aggDists[aggInd-1])/(aggDists[aggInd]-aggDists[aggInd-1]);
+              var before = dragPositions[aggInd-1];
+              var after = dragPositions[aggInd];
+              nextPoint = pt(before.x + ratio*(after.x-before.x), before.y + ratio*(after.y-before.y))
+            }
+            chartPoints.push(toChartCoords(nextPoint, true, this, jogSpec.xScale, jogSpec.yScale));
+            scenarios.push(s+1);
+          }
         }
         jogSpec.row = row;
         jogSpec.pointRange = chartPoints;
@@ -687,8 +733,9 @@ so then the question is how to send an update to a dataset on which another depe
         jogSpec.maxIndex = nSteps;
         jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
         jogSpec.bounce = true;
+        this.nextJogSpec = jogSpec;
 
-        if (dragType) {         // a raw click does nothing at this point
+        if (dragType) {         // a raw drag does nothing else at this point
           var self = this;
           var setUp = function() {
             if (dragType=="jog") startJog(self);
@@ -732,7 +779,21 @@ so then the question is how to send an update to a dataset on which another depe
           } else clickResponse();
         }
       }).bind(chart));
-        
+      
+      chart.on("dblclick", (function(evt, item) {
+        console.log("double click on", item);
+        if (item.dragx || item.dragy) {        // this is an item the user can drag
+          var xSpec = parseDragSpec(item.dragx);   // may be null
+          var ySpec = parseDragSpec(item.dragy);   // ditto
+          var dataset = (xSpec && xSpec.dataset) || (ySpec && ySpec.dataset);
+          if (dataset=="workingDataRanges") {
+            var column = (xSpec && xSpec.column) || (ySpec && ySpec.column);
+            var itemRow = JSON.parse(item.datarows)[0];
+            window.Shiny.timestampedOnInputChange("trigger", { message: "clearControl", args: { dataset: dataset, row: itemRow, column: column } });
+          }
+        }
+      }).bind(chart));
+      
       chart.on("mousedown", (function (evt, item) {
         // dragx and dragy are comma-separated strings of the form
         //    scaleName,datasetName,columnName  (e.g. x,workingData,wt)
@@ -793,15 +854,26 @@ so then the question is how to send an update to a dataset on which another depe
             if (evt.getKeyCode() === Event.KEY_TAB) {
               // couldn't figure out whether there's a combination of stopPropagation etc
               // to allow the tab press to appear to onKeyPress.  So we deal with it here.
+              // console.log("handle tab");
               var direction = evt.isShiftDown() ? -1 : 1;
               window.Shiny.timestampedOnInputChange("trigger", { message: "visitScenario", args: direction });
+              evt.stop();
+              return false;
+            } else if (evt.getKeyCode() === Event.KEY_ALT) {
+              // console.log("handle alt...");
+              // Pressing alt during a drag deletes all but the last recorded drag position
+              this.dragPositions = [this.dragPositions.last()];
               evt.stop();
               return false;
             }
           }).bind(handle);
 
           handle.onKeyUp = (function onKeyUp(evt) {
-            if (evt.getKeyCode() === -1000 /* Event.KEY_SHIFT */) { } // disabled
+            if (evt.getKeyCode() === Event.KEY_ALT) {
+              this.chart.defineSweepFromDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, "sweep");
+              evt.stop();
+              return false;
+            }
           }).bind(handle);
 
           handle.addScript(function onKeyPress(evt) {
@@ -816,7 +888,7 @@ so then the question is how to send an update to a dataset on which another depe
             };
             var msg = { message: "endEdit", args: [ this.dataset ] };
             window.Shiny.onInputChange("trigger", JSON.stringify(msg));
-            if (this.rangeLine) this.rangeLine.remove();
+            
             this.remove();
             var evt = Global.event;          // hack?
             var dragType = null;
