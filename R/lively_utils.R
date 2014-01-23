@@ -237,18 +237,17 @@ guessMList <- function(data, xProp, yProp) {
 }
 
 guessLine <- function(guessML) {
-  if (identical(guessML, list())) return(emptySplit)
+  # guessLine is just dots, and we only store one for the default (not for sweep),
+  # so no need for it to be a split df
+  if (identical(guessML, list())) return(emptyData)
   
-  df = data.frame(chartx=c(guessML[["1"]]$chartx, guessML[["2"]]$chartx),
-                  charty=c(guessML[["1"]]$charty, guessML[["2"]]$charty),
-                  grouping=1)
-  split_df(df, quote(grouping), env=NULL)
+  data.frame(chartx=c(guessML[["1"]]$chartx, guessML[["2"]]$chartx),
+            charty=c(guessML[["1"]]$charty, guessML[["2"]]$charty))
 }
 
-extendGuessLine <- function(guessLineSplit, maxX, maxY) {
-  if (identical(guessLineSplit, emptySplit)) return(emptySplit)
+extendGuessLine <- function(gl, maxX, maxY) {
+  if (identical(gl, emptyData)) return(emptySplit)
 
-  gl <- as.data.frame(guessLineSplit)
   # extrapolate to x=0 and x=max*2
   leftX <- gl[1, "chartx"]
   leftY <- gl[1, "charty"]
@@ -325,31 +324,21 @@ resetSweep <- function() {
 setupNewSweep <- function(numScenarios) {
   update_static("numScenarios", numScenarios)
   update_static("scenarioColours", colorRampPalette(c("blue", "red"))(numScenarios))
-  update_static("visitedScenario", 0)
   # clear all sweepables
   for (sweepable in gvStatics$sweepables) gvSweep[[sweepable]] <- list()
 }
 
-visitNextScenario <- function(dir) {
-  # dir is 1 or -1.
-  # if there is a sweep, copy any settings from the next scenario into default.
-  # if a manipulation-list variable is encountered, merge the default and scenario-specific
-  # settings.
-  if ((numScens <- gvStatics$numScenarios) > 0) {
-    visitScen <- gvStatics$visitedScenario %% numScens + dir
-    if (visitScen < 1) visitScen <- visitScen + numScens
-    # debugLog(paste0("visit scenario: ", visitScen))
-    for (sweepable in gvStatics$sweepables) {
-      sweep <- isolate(gvSweep[[sweepable]])
-      if (length(sweep) > 0) {
-        newVal <- if (class(sweep[[1]])=="list")
-          # do a merge on a reduced sweep list with just the scenario we want
-            mergeManipulationLists(isolate(gvDefault[[sweepable]]), sweep[visitScen])[[1]]
-          else sweep[[visitScen]]
-        update_defaultReactive(sweepable, newVal)
-      }
+visitScenario <- function(scen) {
+  # debugLog(paste0("visit scenario: ", scen))
+  for (sweepable in gvStatics$sweepables) {
+    sweep <- isolate(gvSweep[[sweepable]])
+    if (length(sweep) > 0) {
+      newVal <- if (class(sweep[[1]])=="list")
+        # do a merge on a reduced sweep list with just the scenario we want
+        mergeManipulationLists(isolate(gvDefault[[sweepable]]), sweep[scen])[[1]]
+      else sweep[[scen]]
+      update_defaultReactive(sweepable, newVal)
     }
-    update_static("visitedScenario", visitScen)
   }
 }
 
@@ -379,7 +368,8 @@ bindSweepDFs <- function(dfs, colourProperty, requiredCols=list()) {
       df$scenario <- c(pi)
       df})
     # debugLog(capture.output(print(colouredDFs)))
-    structure(colouredDFs, class = "split_df", variables = NULL)
+    #structure(colouredDFs, class = "split_df", variables = NULL)
+    do.call("rbind", colouredDFs)
   }
 }
 
@@ -417,9 +407,9 @@ bindSweepBinDFs <- function(dfs, colourProperty, requiredCols=list()) {
 }
 
 # when a chart is cleared for refresh, this is called to record the values used last time
-recordHistory <- function() {
+recordLatest <- function() {
   # TODO: generalise this
-  for (name in c("xProp", "yProp")) update_static(paste0(name, "History"), isolate(gvSwitches[[name]]))
+  for (name in c("xProp", "yProp")) update_static(paste0(name, "Latest"), isolate(gvSwitches[[name]]))
 }
 
 mergeManipulationLists <- function(default, sweep) {
@@ -617,7 +607,7 @@ scatterPlotWithSweep <- function() {
   reducedOpacity <- 0.4
   zeroOpacity <- 0.0
   fullColour <- "black"
-  paleColour <- "gray"
+  paleColour <- "#A0A0A0"  # or "gray", which is 808080
 
   # first, figure out which scenarios have edits, and which have ROI settings.
   # if there is an edit sweep, one or more base-data rows will have additional rows in the
@@ -697,8 +687,8 @@ transitionDataFrame <- function(data) {
   # prevXProp column of the supplied dataset are scaled so they will appear at the same
   # relative positions on the newXProp scale; ditto for prevYProp.
   # movingRows is the number of rows of default-scenario data; now at the end, not start. 
-  prevXProp <- gvStatics$xPropHistory
-  prevYProp <- gvStatics$yPropHistory
+  prevXProp <- gvStatics$xPropLatest
+  prevYProp <- gvStatics$yPropLatest
   newXProp <- isolate(gvSwitches$xProp)
   newYProp <- isolate(gvSwitches$yProp)
   rescaled <- 
@@ -706,9 +696,11 @@ transitionDataFrame <- function(data) {
     (!is.null(prevYProp) && (prevYProp != newYProp))
   # debugLog(paste(prevXProp, prevYProp, newXProp, newYProp, sep=" "))
   debugLog(paste0("rescaled X or Y: ", rescaled))
-  if (rescaled) {
-    update_static("xPropHistory", newXProp)     # for next time
-    update_static("yPropHistory", newYProp)
+  if (rescaled) {   # could be first time through
+    update_static("xPropHistory", if (is.null(prevXProp)) newXProp else prevXProp)
+    update_static("yPropHistory", if (is.null(prevYProp)) newYProp else prevYProp)
+    update_static("xPropLatest", newXProp)     # for next time
+    update_static("yPropLatest", newYProp)
 
     movingRows <- totalRows <- nrow(data)   # used to draw a distinction, but no longer needed
     df <- data[1:movingRows,]
@@ -780,14 +772,17 @@ refreshChart <- function(id) {
 
 handleTriggerMessage <- function(msg) {
   debugLog(paste0("message from browser: ", msg$message))
-  if (msg$message=="swapXY") {
-    recordHistory(); refreshChart('plot1'); refreshChart('plot2');
-    tmp <- isolate(gvSwitches$xProp)
-    gvSwitches$xProp <- isolate(gvSwitches$yProp)
-    gvSwitches$yProp <- tmp
+  if (msg$message=="newXYProps") {
+    recordLatest(); refreshChart('plot1'); refreshChart('plot2');
+    args <- msg$args
+    gvSwitches$xProp <- args$x
+    gvSwitches$yProp <- args$y
   } else if (msg$message == "visitScenario") {
-    visitNextScenario(as.numeric(msg$args))
+    visitScenario(as.numeric(msg$args))
+  } else if (msg$message == "resetSweep") {
+    resetSweep()
   } else if (msg$message == "clearControl") {
+    # clear one of the range-setting controls.
     # args are [ dataset, row, column ]
     args <- msg$args
     dataset <- args$dataset

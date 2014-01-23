@@ -184,6 +184,7 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
         spec_struct <- NULL
 # a place to profile the heaviest part of any chart re-generation
 #if (id == "plot1") Rprof("r_profile", memory.profiling=FALSE, interval=0.002)
+#if (id == "plot1") Rprof("r_profile", memory.profiling=FALSE, line.profiling=TRUE, interval=0.002)
         all_rs <- trackReactivesDuring(function() {
           spec_struct <<- as.vega(r_gv(), session = session, dynamic = FALSE)
         })
@@ -205,12 +206,12 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
 lively_observe_spec <- function(r_spec, id, session, renderer) {
   debugLog(paste0(id, " setup lively_observe_spec"))
   obs <- observe({
-    if (!is.null(r_spec())) {
+    if (!is.null(spec <- r_spec())) {
       debugLog(paste0(id, " non-null lively_observe_spec"))
       session$sendCustomMessage("ggvis_lively_vega_spec", list(
         chartId = id,
         version = gvChartVersions[[id]],
-        spec = r_spec(),
+        spec = spec,
         renderer = renderer,
         dataSeparate = FALSE
         # timings = timeTracker      disabled
@@ -240,9 +241,9 @@ lively_observe_data <- function(r_spec, id, session) {
 #     data_observers <<- list()
     data_observers <- list()  # just to gather the observers set up this time through
     
-    if (!is.null(r_spec())) {
+    if (!is.null(spec <- r_spec())) {
       debugLog(paste0(id, " non-null lively_observe_data"))
-      data_table <- attr(r_spec(), "data_table")
+      data_table <- attr(spec, "data_table")
       data_names <- ls(data_table, all.names = TRUE)
       
       # Create observers for each of the data objects

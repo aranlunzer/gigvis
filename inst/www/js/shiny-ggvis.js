@@ -7,7 +7,7 @@
 oneTimeInitShinyGgvis = function() {
   window.shinyGgvisInitialized = true;
 
-  var debug = true;
+  var debug = false;
 
   var livelyPendingData = {};
   var livelyPendingCharts = {};
@@ -30,8 +30,12 @@ oneTimeInitShinyGgvis = function() {
   Shiny.setUpSweepOnChartNamed = function(chartName) {
     Shiny.setUpSweep(Shiny.chartNamed(chartName));
   }
-  Shiny.setUpParameterRangeOnChartNamed = function(chartName, parameter, values, triggerName) {
-    Shiny.setUpParameterRange(Shiny.chartNamed(chartName), parameter, values, triggerName)
+  Shiny.setUpParameterRangeOnChartNamed = function(chartName, parameter, values, triggerName, trackerFn) {
+    Shiny.setUpParameterRange(Shiny.chartNamed(chartName), parameter, values, triggerName, trackerFn)
+  }
+  Shiny.resetSweep = function() {
+    Shiny.numScenarios = Shiny.visitScenario = 0;
+    Shiny.timestampedOnInputChange("trigger", { message: "resetSweep" });
   }
   
   var ggvisOutputBinding = new Shiny.OutputBinding();
@@ -211,7 +215,7 @@ if (debug) console.log("data", chartId, version, name);
         chart.highlightDragItems();
       }
       var trigger = livelyDataTriggers[name];
-      if (trigger) { delete livelyDataTriggers[name]; trigger() }; 
+      if (trigger) { delete livelyDataTriggers[name]; setTimeout(trigger, 1) }; 
       // chart.update({props: "update", duration: 500});
     } else {
       // put the dataSpec in the pendingData collection, for use by the chart when all
@@ -262,6 +266,7 @@ if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
       // and adds the svg part (an svgHandler) to the dom as a listener.
       var selector = ".ggvis-output#" + chartId;
       var viewDivObj = $(selector);
+      viewDivObj.off();   // this div is long-lived; remove any event listeners left over from last time
       // disable the default hover behaviour
       var chart = chartBuilder({ el: selector, hover: false, renderer: renderer });
       viewDivObj.data("ggvis-chart", chart);   // a convenient way to access the View object
@@ -274,7 +279,7 @@ if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
         if (movingItems(chart).length) {
           chart.update({ props: "enter" });
           setTimeout(function(){$world.setHandStyle(null)}, 250);
-          chart.update({ props: "update", /*items: movingItems(chart),*/ duration: 750 });
+          chart.update({ props: "update", /*items: movingItems(chart),*/ duration: 400 });
         }
       } else {
         // this function is only called once the pendingData are complete
@@ -411,7 +416,7 @@ so then the question is how to send an update to a dataset on which another depe
         return pt(xVal, yVal);
       }
       
-      function setUpParameterRange(chart, parameter, unfilteredValues, triggerName) {
+      function setUpParameterRange(chart, parameter, unfilteredValues, triggerName, trackerFn) {
         // sent by a slider, at the end of a drag
         if (unfilteredValues.length < 2) return;
 
@@ -441,6 +446,8 @@ so then the question is how to send an update to a dataset on which another depe
         jogSpec.maxIndex = numPositions - 1;
         jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
         jogSpec.bounce = true;
+        
+        jogSpec.trackerFn = trackerFn;
       }
       Shiny.setUpParameterRange = setUpParameterRange;
       
@@ -465,7 +472,7 @@ so then the question is how to send an update to a dataset on which another depe
           // visit 8 compass directions, in a circle of diameter 0.1*scale in each dimension.
           var numPositions = 8;  // numbered 0 to 7
           var chartRect = $(chart._el).bounds();
-          var ratio = 0.1;
+          var ratio = 0.15;
           var xRadius = chartRect.width() * ratio / 2;
           var yRadius = chartRect.height() * ratio / 2;
           for (var segment=0; segment<8; segment++) {
@@ -504,7 +511,7 @@ so then the question is how to send an update to a dataset on which another depe
 
       function startJog(chart) {
         if (!chart.nextJogSpec) return;
-        console.log("start jog");
+        if (debug) console.log("start jog");
         chart.jogSpec = chart.nextJogSpec;
         jogStep(chart);
         // make sure the view has keyboard focus, to allow Escape to stop the jog
@@ -518,10 +525,10 @@ so then the question is how to send an update to a dataset on which another depe
         var jogSpec = chart.jogSpec;
         if (jogSpec.dataset) {
           var jogPoint = jogSpec.pointRange[jogSpec.index];
-          sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogPoint ]);
+          sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogPoint ], "trigger2");
         } else {
           var jogValue = jogSpec.valueRange[jogSpec.index];
-          sendParameterMessage(jogSpec.parameter, [ 0 ], [ jogValue ]);
+          sendParameterMessage(jogSpec.parameter, [ 0 ], [ jogValue ], "trigger2");
         }
         // step to next jog position, taking account of the "bounce" setting
         var dir = jogSpec.direction;
@@ -539,19 +546,18 @@ so then the question is how to send an update to a dataset on which another depe
         }
         jogSpec.index = next;
         jogSpec.direction = dir;
-        // console.log("set up trigger: ", jogSpec.triggerName)
         livelyDataTriggers[jogSpec.triggerName] = function() { jogStep(chart) };
       }
 
       function endJog(chart) {
-        console.log("======= ending jog ========");
+        if (debug) console.log("ending jog");
         var jogSpec = chart.jogSpec;
         if (jogSpec) {
           delete livelyDataTriggers[jogSpec.triggerName];
           if (jogSpec.dataset) {    // it's from a chart-point drag, not a slider
-            sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogSpec.restorePoint ]);
+            sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogSpec.restorePoint ], "trigger2");
           } else {
-            sendParameterMessage(jogSpec.parameter, [ 0 ], jogSpec.restoreValue);
+            sendParameterMessage(jogSpec.parameter, [ 0 ], jogSpec.restoreValue, "trigger2");
           }
           delete chart.jogSpec;
         }
@@ -562,13 +568,34 @@ so then the question is how to send an update to a dataset on which another depe
 
         if (debug) console.log("set up sweep");
         var range = chart.nextJogSpec;
+        // the spec is either for edits on a draggable variable, or 
         if (range.dataset) {
           sendEditMessage(range.dataset, [range.xColumn, range.yColumn], range.row, range.scenarios, range.pointRange);
-        } else { sendParameterMessage(range.parameter, range.scenarios, range.valueRange) }
+          Shiny.numScenarios = range.pointRange.length;
+          Shiny.sweepTracker = null;
+        } else {
+          Shiny.sweepValueRange = range.valueRange;
+          Shiny.sweepTracker = range.trackerFn;
+          Shiny.numScenarios = range.valueRange.length;
+          sendParameterMessage(range.parameter, range.scenarios, range.valueRange);
+        }
+        Shiny.visitScenario = 0;
       }
       Shiny.setUpSweep = setUpSweep;
 
-      function sendEditMessage(dataset, xycolumns, row, scenarios, chartPoints) {
+      function visitNextScenario(dir) {
+        if (Shiny.numScenarios> 0) {
+          var vs = Shiny.visitScenario % Shiny.numScenarios + dir;
+          if (vs < 1) vs += Shiny.numScenarios;
+          Shiny.visitScenario = vs;
+          // console.log("new scenario: ", vs);
+          if (Shiny.sweepTracker) Shiny.sweepTracker(Shiny.sweepValueRange[vs-1]);
+          window.Shiny.timestampedOnInputChange("trigger", { message: "visitScenario", args: vs });
+        }
+      }
+      Shiny.visitNextScenario = visitNextScenario;
+
+      function sendEditMessage(dataset, xycolumns, row, scenarios, chartPoints, channel) {
         var args = {};
         args.type = "data";
         args.target = { dataset: dataset, row: row, xycolumns: xycolumns };
@@ -579,16 +606,16 @@ so then the question is how to send an update to a dataset on which another depe
           if (cp.y) xy[[1]] = cp.y.toFixed(2);
           return xy;
         });
-        var msg = { message: "edit", args: args };
-        window.Shiny.timestampedOnInputChange("trigger", msg);
+        var ch = channel || "trigger";  // allow override of default channel
+        window.Shiny.timestampedOnInputChange(ch, { message: "edit", args: args });
       }
 
-      function sendParameterMessage(parameter, scenarios, values) {
+      function sendParameterMessage(parameter, scenarios, values, channel) {
         var args = { type: "parameter", target: parameter, scenarios: scenarios, values: values };
-        var msg = { message: "edit", args: args };
-        window.Shiny.timestampedOnInputChange("trigger", msg);
+        var ch = channel || "trigger";  // allow override of default channel
+        window.Shiny.timestampedOnInputChange(ch, { message: "edit", args: args });
       }
-      
+
       //viewDivObj.on("blur", function() { if (debug) console.log("div blur") });
       //viewDivObj.on("focus", function() { if (debug) console.log("div focus") });
       viewDivObj.on("mouseover", function() {
@@ -599,24 +626,23 @@ so then the question is how to send an update to a dataset on which another depe
       viewDivObj.on("keydown", (function(evt) {
         // console.log(evt.keyCode);
         if (evt.keyCode === Event.KEY_ESC) {
-          console.log("ESCAPE");
+          if (debug) console.log("ESCAPE");
           endJog(this.data("ggvis-chart"));
           return false;
         }
         if (evt.keyCode === Event.KEY_TAB) {
-          console.log("TAB");
-          var direction = evt.shiftKey ? -1 : 1;
-          window.Shiny.timestampedOnInputChange("trigger", { message: "visitScenario", args: direction });
+          if (debug) console.log("TAB");
+          setTimeout(function() { visitNextScenario(evt.shiftKey ? -1 : 1)}, 1);
           return false;
         }
       }).bind(viewDivObj));
       
-      viewDivObj.on("keyup", (function(evt) {
+      //viewDivObj.on("keyup", (function(evt) {
         // console.log("up", evt);
-      }).bind(viewDivObj));
+      //}).bind(viewDivObj));
 
-      viewDivObj.on("keypress", (function(evt) {
-      }).bind(viewDivObj));
+      //viewDivObj.on("keypress", (function(evt) {
+      //}).bind(viewDivObj));
 
       chart.dragItem = null;
       chart.on("mouseover", (function(evt, item) {
@@ -741,17 +767,17 @@ so then the question is how to send an update to a dataset on which another depe
             if (dragType=="jog") startJog(self);
             else setUpSweep(self);
             }
-          if (this.jogItem) {
+          if (this.jogSpec) {
             endJog(this);        // clear any existing jog
-            setTimeout(setUp, 200);  // and give it a chance to settle
+            setTimeout(setUp, 400);  // and give it a chance to settle
           } else setUp();
         }
       }).bind(chart);
       
       chart.sortScenarioItems = (function () {
         // sort such that scenario 0's marks come at the end
-        if (debug) console.log("sorting");
-        // NB: we reject items that appear to have been assigned index-based keys by vega, because changing their order causes Vega to lose track of them
+        //if (debug) console.log("sorting");
+        // NB: we exclude items that appear to have been assigned index-based keys by vega, because changing their order causes Vega to lose track of them.  We could probably do a much better job by adding the logic to sort within more constrained ranges - notably, ensuring we only sort against each other the elements for a single mark. 
         d3.select(this._el).selectAll("svg.marks rect, svg.marks path").filter(function(d) { return d && (d.scenario!==undefined) && !(d.key.toFixed)}).sort(function(a,b) { return b.scenario-a.scenario } );
       }).bind(chart);
       
@@ -773,15 +799,15 @@ so then the question is how to send an update to a dataset on which another depe
             if (clickType=="jog") startJog(self);
             else setUpSweep(self);
             }
-          if (this.jogItem) {
+          if (this.jogSpec) {
             endJog(this);        // clear any existing jog
-            setTimeout(clickResponse, 200);  // and give it a chance to settle
+            setTimeout(clickResponse, 400);  // and give it a chance to settle
           } else clickResponse();
         }
       }).bind(chart));
       
       chart.on("dblclick", (function(evt, item) {
-        console.log("double click on", item);
+        // console.log("double click on", item);
         if (item.dragx || item.dragy) {        // this is an item the user can drag
           var xSpec = parseDragSpec(item.dragx);   // may be null
           var ySpec = parseDragSpec(item.dragy);   // ditto
@@ -851,17 +877,17 @@ so then the question is how to send an update to a dataset on which another depe
           }).bind(handle);
 
           handle.addScript(function onKeyDown(evt) {
-            if (evt.getKeyCode() === Event.KEY_TAB) {
+            var keyCode = evt.getKeyCode()
+            if (keyCode === Event.KEY_TAB) {
               // couldn't figure out whether there's a combination of stopPropagation etc
               // to allow the tab press to appear to onKeyPress.  So we deal with it here.
               // console.log("handle tab");
-              var direction = evt.isShiftDown() ? -1 : 1;
-              window.Shiny.timestampedOnInputChange("trigger", { message: "visitScenario", args: direction });
+              Shiny.visitNextScenario(evt.isShiftDown() ? -1 : 1);
               evt.stop();
               return false;
-            } else if (evt.getKeyCode() === Event.KEY_ALT) {
+            } else if (keyCode === Event.KEY_ALT || keyCode === Event.KEY_SHIFT) {
               // console.log("handle alt...");
-              // Pressing alt during a drag deletes all but the last recorded drag position
+              // Pressing alt or shift during a drag deletes all but the last recorded drag position.  But later releasing shift does nothing, whereas releasing alt immediately uses the positions up to then as a sweep.
               this.dragPositions = [this.dragPositions.last()];
               evt.stop();
               return false;
@@ -978,6 +1004,14 @@ so then the question is how to send an update to a dataset on which another depe
     livelyPendingData = {};
     livelyPendingCharts = {};
     livelyRenderedCharts = {};
+    
+    livelyDataTriggers = {};
+    livelyEditRange = null;
+    
+    Shiny.propLatest = { x: null, y: null };
+    Shiny.propHistory = { x: null, y: null };
+    delete Shiny.lastColumnHighlight;
+    Shiny.numScenarios = Shiny.visitScenario = 0;
   }
 };
 
