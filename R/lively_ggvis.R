@@ -287,9 +287,10 @@ lively_observe_data <- function(r_spec, id, session) {
                     value = as.vega(data_content, data_name)
                   ))
                 } else {
-                  # we can only send a replacement for a split_df that's always been split -
+                  # for now we can only send a replacement for a split_df that's always been split -
                   # and is thus already known on the JS side to be a nested data set.  so we 
-                  # only need to send a replacement for the tree structure.
+                  # only need to send a replacement for the "_tree" structure.
+                  if (FALSE) {     # DEBUG!!!!
                   session$sendCustomMessage("ggvis_lively_data", list(
                     chartId = id,
                     version = version,
@@ -300,7 +301,7 @@ lively_observe_data <- function(r_spec, id, session) {
                       values = list(children = lapply(data_content, function(x) list(children = df_to_json(x))))
                     ))
                   ))
-                  
+                  }
                   # no need to send this.
 #                   session$sendCustomMessage("ggvis_lively_data", list(
 #                     chartId = id,
