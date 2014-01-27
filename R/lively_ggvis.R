@@ -287,7 +287,9 @@ lively_observe_data <- function(r_spec, id, session) {
                     value = as.vega(data_content, data_name)
                   ))
                 } else {
-                  # for a split_df we need to send two datasets
+                  # we can only send a replacement for a split_df that's always been split -
+                  # and is thus already known on the JS side to be a nested data set.  so we 
+                  # only need to send a replacement for the tree structure.
                   session$sendCustomMessage("ggvis_lively_data", list(
                     chartId = id,
                     version = version,
@@ -298,17 +300,20 @@ lively_observe_data <- function(r_spec, id, session) {
                       values = list(children = lapply(data_content, function(x) list(children = df_to_json(x))))
                     ))
                   ))
-                  session$sendCustomMessage("ggvis_lively_data", list(
-                    chartId = id,
-                    version = version,
-                    name = data_name,
-                    value = list(list(
-                      name = data_name,
-                      source = paste0(data_name, "_tree"),
-                      transform = list(list(type = "flatten"))
-                    ))
-                  ))
-                }})
+                  
+                  # no need to send this.
+#                   session$sendCustomMessage("ggvis_lively_data", list(
+#                     chartId = id,
+#                     version = version,
+#                     name = data_name,
+#                     value = list(list(
+#                       name = data_name,
+#                       source = paste0(data_name, "_tree"),
+#                       transform = list(list(type = "flatten"))
+#                     ))
+#                   ))
+
+                  }})
               debugLog(paste0("send time: ", round(1000*t["elapsed"]), "ms"))
               }
             }
