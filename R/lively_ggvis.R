@@ -278,6 +278,7 @@ lively_observe_data <- function(r_spec, id, session) {
                 debugLog("first time") 
               } else {
                 # split_df handling is different
+                t <- system.time({
                 if (!is.split_df(data_content)) {
                   session$sendCustomMessage("ggvis_lively_data", list(
                     chartId = id,
@@ -307,7 +308,8 @@ lively_observe_data <- function(r_spec, id, session) {
                       transform = list(list(type = "flatten"))
                     ))
                   ))
-                }
+                }})
+              debugLog(paste0("send time: ", round(1000*t["elapsed"]), "ms"))
               }
             }
           }, label="obs_single_data")
