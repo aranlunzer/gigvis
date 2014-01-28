@@ -109,7 +109,6 @@ ggvis = (function(_) {
     return callbackregistry;
   })(); // ggvis.CallbackRegistry
 
-
   // ggvis.Plot class ----------------------------------------------------------
   ggvis.Plot = (function() {
 

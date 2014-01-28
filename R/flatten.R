@@ -1,5 +1,4 @@
 flatten <- function(node, parent = NULL, session = NULL) {
-
   node$props <- init_inputs(node$props, session)
   # Convert handlers which were added directly to the ggvis object to reactives.
   # This is useful only for observers. If the reactive returns a reactive
@@ -21,20 +20,37 @@ flatten <- function(node, parent = NULL, session = NULL) {
     # Point to parent data
     node$pipeline <- parent$pipeline
     node$pipeline_id <- parent$pipeline_id
+    node$datasource_id <- parent$datasource_id
   } else {
     # Create new pipeline connected to parent
     node$pipeline <- connect(node$data, node$props, parent$pipeline, session)
 
     # Generate pipeline_id; if connected to parent's pipeline, append to its id
+    # ael note: up to Dec 2013 we used ":" as a separator between parent and child ids
     id <- pipeline_id(node$data, node$props)
     if (!has_source(node$data)) {
       id <- paste(parent$pipeline_id, id, sep = "_")
     }
     node$pipeline_id <- id
+
+    # ael TODO: one day remove datasource handling if pipeline_id proves to be enough
+    prop_list <- as.list(node$props)
+    if (!is.null(prop_list$sharedProvenance)) {
+      provenance <- as.list(fromJSON(prop_list$sharedProvenance$value, asText=TRUE)) 
+      if (!is.null(provenance$datasource))
+        node$datasource_id <- provenance$datasource
+    }
+    # ael: we want datasource_id to correspond to the first data encountered, so copy down
+    # from parent to child.  In addition a node can be given an explicit datasource that overrides
+    # any supplied from the data.
+    if (is.null(node$datasource_id)) {   # not set from sharedProvenance
+      if (is.null(parent$datasource_id)) node$datasource_id <- node$pipeline_id # digest(sluice(node$data, props=props()))
+      else node$datasource_id <- parent$datasource_id
+    }
   }
 
   if (is.mark(node)) {
-    # Base case: so return self
+    # Base case, so return self
     list(node)
   } else {
     # If there are any handlers that have layers, grab them and add to children.
@@ -47,8 +63,10 @@ flatten <- function(node, parent = NULL, session = NULL) {
   }
 }
 
+# return the reactive pipelines mentioned in a flattened spec
 extract_data <- function(nodes) {
   data_table <- new.env(parent = emptyenv())
+  # if multiple nodes mention the same pipeline id, assume it's the same pipeline
   for (node in nodes) {
     id <- node$pipeline_id
     if (exists(id, data_table)) next
@@ -61,32 +79,36 @@ extract_data <- function(nodes) {
 
 # Create a new reactive dataset containing only the data actually used
 # by properties.
+# data is a table of reactive pipelines (prepared by flatten()) that deliver whole
+# data sources.  Here we examine all nodes that refer to a given pipeline, deduce
+# which properties in the data source they use, and prepare new reactives that
+# filter the original pipeline's (possibly changing) data down to that property subset.
 active_props <- function(data, nodes) {
   # Collect all props for given data
   pipeline_id <- vapply(nodes, function(x) x$pipeline_id, character(1))
   props <- lapply(nodes, function(x) x$props)
-
+  
   props_by_id <- split(props, pipeline_id)
   props_by_id <- lapply(props_by_id, unlist, recursive = FALSE)
-
+  
   uprops_by_id <- lapply(props_by_id, function(props) {
     names <- vapply(props, prop_name, character(1))
     ok <- !duplicated(names) & names != ""
-
+    
     setNames(props[ok], names[ok])
   })
-
+  
   reactive_prop <- function(props, data) {
     force(props)
     force(data)
-    reactive(apply_props(data(), props))
+    reactive(apply_props(data(), props), label="react_prop")
   }
-
+  
   data_out <- new.env(parent = emptyenv())
   for (data_n in names(uprops_by_id)) {
     data_out[[data_n]] <- reactive_prop(uprops_by_id[[data_n]], data[[data_n]])
   }
-
+  
   data_out
 }
 

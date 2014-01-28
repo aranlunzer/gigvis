@@ -28,10 +28,16 @@
 datasource <- function(data, name = deparse2(substitute(data))) {
   if (is.null(data)) return(NULL)
 
+  if (isTRUE(getOption('shiny.withlively'))) {
+    hash <- "00"
+  } else {
+    hash <- digest(data)
+  }
+    
   structure(list(
     env = environment(),
     name = name,
-    hash = digest(data)
+    hash = hash
   ), class = c(source_class(data), "datasource", "pipe"))
 }
 
@@ -50,7 +56,27 @@ format.datasource <- function(x, ...) {
 is_source.datasource <- function(x) TRUE
 
 #' @export
-pipe_id.datasource <- function(x, props) paste0(x$name, "_", x$hash)
+#' ael: if non-NULL props are specified, come up with an id that incorporates them -
+#' so that different data subsets are distinguishable by their pipeline ids
+pipe_id.datasource <- function(x, props) {
+  # paste0(x$name, "_", x$hash)  # original version
+  if (is.null(props) || !isTRUE(getOption('shiny.withlively'))) {
+    paste0(x$name, "/", x$hash, "/")
+  } else {
+    # now that props can be expressions such as   ~time + 1   we need to concat their strings.
+    # it turns out they can also now be functions (e.g. see prop.R line 63)
+    propStr <- paste(
+      vapply(
+        props,
+        function(p)
+          if (is.function(p$value)) "(func)"
+          else paste(as.character(p$value), collapse=""),
+        character(1)
+        ),
+      collapse="")
+    paste0(x$name, "/", x$hash, ":", propStr, "/")
+  }
+}
 
 # Connect methods --------------------------------------------------------------
 

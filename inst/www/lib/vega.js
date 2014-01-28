@@ -2355,7 +2355,9 @@ var vg_gradient_id = 0;vg.canvas = {};vg.canvas.path = (function() {
 
     var id = p.attr("id"),
         s = "#" + id + " > " + tag,
-        m = p.selectAll(s).data(data),
+        // ael: add handling for an item key, if specified
+        // original: m = p.selectAll(s).data(data),
+        m = p.selectAll(s).data(data, function(d,i) { return d.key || i }),
         e = m.enter().append(tag);
 
     if (notG) {
@@ -2709,7 +2711,11 @@ function vg_data_duplicate(d) {
   } else if (vg.isObject(d)) {
     x = {};
     for (i in d) {
-      x[i] = vg_data_duplicate(d[i]);
+// ael: avoid attempting to copy function and its arbitrary context stack
+if (typeof d[i] === 'function') {x[i] = d[i]}
+else { x[i] = vg_data_duplicate(d[i]);}
+    // was:
+    // x[i] = vg_data_duplicate(d[i]);
     }
   }
   return x;
@@ -5319,6 +5325,7 @@ vg.scene.item = function(mark) {
       list.item = item;
       list.ease = item.mark.ease || this.ease;
       list.next = this.updates.next;
+list.remove = null;     // ael - try to avoid confusion with remove() method
       this.updates.next = list;
     }
     return this;
@@ -6386,7 +6393,7 @@ function vg_hLegendLabels() {
         data = this._data[name],
         n = source ? source.length : 0, i, x;
     for (i=0; i<n; ++i) {
-      x = vg_data_duplicate(data);
+        x = vg_data_duplicate(data);
       if (vg.isTree(data)) vg_make_tree(x);
       this.ingest(source[i], tx, x);
     }
