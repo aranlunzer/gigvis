@@ -278,7 +278,7 @@ lively_observe_data <- function(r_spec, id, session) {
                 debugLog("first time") 
               } else {
                 # split_df handling is different
-                t <- system.time({
+                #t <- system.time({    ## DEBUG
                 if (!is.split_df(data_content)) {
                   session$sendCustomMessage("ggvis_lively_data", list(
                     chartId = id,
@@ -290,7 +290,6 @@ lively_observe_data <- function(r_spec, id, session) {
                   # for now we can only send a replacement for a split_df that's always been split -
                   # and is thus already known on the JS side to be a nested data set.  so we 
                   # only need to send a replacement for the "_tree" structure.
-                  if (FALSE) {     # DEBUG!!!!
                   session$sendCustomMessage("ggvis_lively_data", list(
                     chartId = id,
                     version = version,
@@ -301,7 +300,7 @@ lively_observe_data <- function(r_spec, id, session) {
                       values = list(children = lapply(data_content, function(x) list(children = df_to_json(x))))
                     ))
                   ))
-                  }
+
                   # no need to send this.
 #                   session$sendCustomMessage("ggvis_lively_data", list(
 #                     chartId = id,
@@ -314,8 +313,11 @@ lively_observe_data <- function(r_spec, id, session) {
 #                     ))
 #                   ))
 
-                  }})
-              debugLog(paste0("send time: ", round(1000*t["elapsed"]), "ms"))
+                  }
+                
+              # })   ## end of system.time
+              #debugLog(paste0("send time: ", round(1000*t["elapsed"]), "ms"))
+                
               }
             }
           }, label="obs_single_data")
