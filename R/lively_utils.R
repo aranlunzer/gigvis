@@ -1,4 +1,4 @@
-debugLog <- function(message) { if (lg_debug) write(paste0(print(Sys.time()),": ", message), file="lively_r_log", append=TRUE) }
+debugLog <- function(message) { if (lg_debug && !isTRUE(getOption("shiny.localServer"))) write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
 
 printReactLog <- function() {
   message(RJSONIO::toJSON(shiny:::.graphEnv$log, pretty=TRUE))
@@ -7,6 +7,69 @@ printReactLog <- function() {
 
 resetReactLog <- function() {
   assign("log", list(), envir=shiny:::.graphEnv)
+}
+
+startControlServer <- function() {
+  library(httpuv)
+  library(shiny)
+  library(RJSONIO)
+  options(shiny.withlively=TRUE)
+  options(shiny.localServer=TRUE)
+  assign("lg_debug", FALSE, envir=globalenv())
+
+  outerServerRunning <- TRUE
+  while (outerServerRunning) {
+    outerServerRunning <- runControlServer()
+  }
+  debugLog("full exit")
+}
+
+runControlServer <- function() {
+  port <- 8140
+  controlPolling <- TRUE
+  continue <- TRUE
+  evalCode <- NULL
+  
+  app <- list(
+    call = function(req) {
+      list(
+        status = 200L,
+        headers = list(
+          'Content-Type' = 'text/html'
+        ),
+        body = 'dummy content'
+        )
+    },
+    onWSOpen = function(ws) {
+      debugLog(paste0("connected on ", port))
+      ws$onMessage(function(binary, message) {
+        debugLog(substring(message, 1, 25))
+        if (identical(message, "close")) { ws$close() }
+        else if (identical(message, "shutdown")) { continue <<- FALSE; ws$close() }
+        else if (grepl("##serverEval", message)) { evalCode <<- message; controlPolling <<- FALSE }
+        else debugLog(paste0("unrecognised message: ", message))
+      })
+      ws$onClose(function() { debugLog("closing server"); controlPolling <<- FALSE })
+    }
+  )
+  debugLog("starting server")
+  #runServer("0.0.0.0", port, app, 250)
+  server <- startServer("0.0.0.0", port, app)
+  
+  while (controlPolling) {
+    service(250)
+    Sys.sleep(0.001)
+  }
+  
+  if (!is.null(evalCode)) {
+    debugLog("starting eval")
+    eval(parse(text=evalCode))
+    debugLog("finished eval")
+  }
+  
+  debugLog(paste0("ending control loop; continue=", continue))
+  stopServer(server)
+  continue
 }
 
 # from Hadley
@@ -775,8 +838,8 @@ handleTriggerMessage <- function(msg) {
   if (msg$message=="newXYProps") {
     recordLatest(); refreshChart('plot1'); refreshChart('plot2');
     args <- msg$args
-    gvSwitches$xProp <- args$x
-    gvSwitches$yProp <- args$y
+    gvSwitches$xProp <- args[["x"]]     # NB: can't use $ because it's a named vector, not a list
+    gvSwitches$yProp <- args[["y"]]
   } else if (msg$message == "visitScenario") {
     visitScenario(as.numeric(msg$args))
   } else if (msg$message == "resetSweep") {

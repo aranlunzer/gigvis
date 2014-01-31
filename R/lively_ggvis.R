@@ -99,25 +99,29 @@ view_lively <- function(r_gvSpecs, customObserver = NULL, controls = NULL, rende
     # (ael) allow supply of custom observer of changes in input and deliverer of output
     if (!is.null(customObserver)) customObserver(input, output, session)
     
-    # Stop the app when the quit button is clicked (or some code pretends by tweaking input$quit)
+    # Stop the app when input$quit is signalled
     observe({
-      if (is.null(input$quit)) return()
-      if (input$quit > 0) stopApp()
+      if (!is.null(input$quit)) {
+        debugLog("stopping Shiny app")
+        stopApp()
+      }
     }, label="obs_quit")
   }
   environment(server) <- environment()
 
   # try 3 times to find an available port, somewhere in the range 8120 to 8149
-  for (try in 1:3) {
-    port = 8119 + sample(30,1)
-    portTest = paste0("lsof -ta -i tcp:", toString(port))
-    testResult = tryCatch(system(portTest, intern=TRUE), warning=function(w) {} )
-    # a NULL result means no-one's using the port
-    if (is.null(testResult)) break
-    message(paste0("failed on port ", toString(port)))
-    if (try == 3) stop("Can't find a free port")
+  if (isTRUE(getOption("shiny.localServer"))) port <- 8141
+  else {
+    for (try in 1:3) {
+      port = 8119 + sample(30,1)
+      portTest = paste0("lsof -ta -i tcp:", toString(port))
+      testResult = tryCatch(system(portTest, intern=TRUE), warning=function(w) {} )
+      # a NULL result means no-one's using the port
+      if (is.null(testResult)) break
+      message(paste0("failed on port ", toString(port)))
+      if (try == 3) stop("Can't find a free port")
+    }
   }
-  
   # host=NULL to allow connections from outside
   runApp(list(ui = ui, server = server), port=port, host=NULL, launch.browser=FALSE)
 }
