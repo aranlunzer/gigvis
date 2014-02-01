@@ -14,7 +14,8 @@ Imports:
     RJSONIO,
     digest,
     shiny (>= 0.6.0.99),
-    methods
+    methods,
+    MethComp
 Suggests:
     testthat (>= 0.7.1.99),
     knitr
