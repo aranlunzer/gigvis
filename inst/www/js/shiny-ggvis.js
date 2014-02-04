@@ -828,13 +828,16 @@ so then the question is how to send an update to a dataset on which another depe
           handle.xSpec = parseDragSpec(item.dragx);   // may be null
           handle.ySpec = parseDragSpec(item.dragy);   // ditto
           var dataset = handle.dataset = (handle.xSpec && handle.xSpec.dataset) || (handle.ySpec && handle.ySpec.dataset);
+          var msg = { message: "startEdit", args: { dataset: dataset, row: handle.itemRow } };
+          window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+
           if (dataset == "guessMList") {
             // HACK
-            window.Shiny.shinyapp.sendInput({"showPopup": "TRUE"});
-            $world.get("ShinyGigvisMorph1").popupChartMorph(3);
-            };
-          var msg = { message: "startEdit", args: [ dataset ] };
-          window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+            setTimeout(function() {
+              window.Shiny.shinyapp.sendInput({"showPopup": "TRUE"});
+              $world.get("ShinyGigvisMorph1").popupChartMorph(3);
+            }, 100);    // leave a little time for startEdit
+          };
 
           // handle.onFocus = function() { console.log("handle focus") }
           // handle.onBlur = function() { console.log("handle blur") }
@@ -897,7 +900,7 @@ so then the question is how to send an update to a dataset on which another depe
               window.Shiny.shinyapp.sendInput({"showPopup": "FALSE"});
               $world.get("GigvisPopup3").remove();
             };
-            var msg = { message: "endEdit", args: [ this.dataset ] };
+            var msg = { message: "endEdit", args: { dataset: this.dataset } };
             window.Shiny.onInputChange("trigger", JSON.stringify(msg));
             
             this.remove();

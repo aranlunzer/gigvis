@@ -339,6 +339,30 @@ chartLineSlope <- function(line) {
   (line$charty[1] -line$charty[2])/(line$chartx[1] -line$chartx[2])
 }
 
+rsquaredCurrentAndRange <- function(guessLine, xProp, yProp, data, guessEditRow) {
+  xRange <- diff(range(data[[xProp]]));
+  chartx <- c(chartLineSlope(guessLine)*xRange)
+  charty <- c(rsquared(data, xProp, yProp, guessLine))
+  yStart <- guessLine[guessEditRow, "charty"]
+  yRange <- gvStatics$popupYRange
+  # for now, use integer percentage points of the max y, in steps of 2
+  yStartPercent <- round(yStart/yRange*50)*2
+  possibleGL <- guessLine
+  for (yDelta in seq(-30, 30, by=2)) {
+    possibleGL[guessEditRow, "charty"] <- (yStartPercent+yDelta)*0.01*yRange
+    chartx <- c(chartx, chartLineSlope(possibleGL)*xRange)
+    charty <- c(charty, rsquared(data, xProp, yProp, possibleGL))
+  }
+  df <- data.frame(chartx=chartx, charty=charty)
+  df$dotOpacity <- 0.2            # all feint circles
+  df[1, "dotOpacity"] <- 1.0       # except the current one
+  df
+}
+
+emptyRSquaredRange <- function() {
+  customiseDF(emptyData, list(dotOpacity=0))  
+}
+
 update_static <- function(name, value, log=FALSE) {
   gvStatics[[name]] <<- value
   debugLog(paste0("updated static: ", name))
@@ -860,6 +884,11 @@ handleTriggerMessage <- function(msg) {
       editML[[rowIndex]] <- rowList
       gvDefault[[dataset]] <- editML
     }
+  } else if (msg$message == "startEdit") {
+    args <- msg$args       # dataset, row
+    update_static("editSpec", args)
+  } else if (msg$message == "endEdit") {
+    update_static("editSpec", NULL)
   } else if (msg$message == "edit") {
     # now always a single command (rather than potentially x/y commands bundled into one message).
     # the command has a "type" (data/parameter) and a "target"
