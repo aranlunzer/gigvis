@@ -27,6 +27,9 @@ oneTimeInitShinyGgvis = function() {
   Shiny.startJogOnChartNamed = function(chartName) {
     Shiny.startJog(Shiny.chartNamed(chartName));
   }
+  Shiny.endJogOnChartNamed = function(chartName) {
+    Shiny.endJog(Shiny.chartNamed(chartName));
+  }
   Shiny.setUpSweepOnChartNamed = function(chartName) {
     Shiny.setUpSweep(Shiny.chartNamed(chartName));
   }
@@ -547,6 +550,7 @@ so then the question is how to send an update to a dataset on which another depe
           delete chart.jogSpec;
         }
       }
+      Shiny.endJog = endJog;
 
       function setUpSweep(chart) {
         if (!chart.nextJogSpec) return;
