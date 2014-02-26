@@ -164,7 +164,7 @@ as.vega.mark <- function(mark) {
 }
 
 #' @export
-as.vega.ggvis_props <- function(x, default_scales = NULL) {
+as.vega.ggvis_props <- function(x, default_scales = NULL, untagged = FALSE) {
   x <- prop_sets(x)
 
   # Given a list of property sets (enter, update, etc.), return appropriate
@@ -177,7 +177,8 @@ as.vega.ggvis_props <- function(x, default_scales = NULL) {
     Map(prop_vega, x, default_scales)
   }
 
-  lapply(x, vega_prop_set)
+  if (untagged) vega_prop_set(x$update)
+  else lapply(x, vega_prop_set)
 }
 
 #' @export
@@ -185,7 +186,7 @@ as.vega.vega_axis <- function(x) {
   if (empty(x$properties)) {
     x$properties <- NULL
   } else {
-    x$properties <- lapply(x$properties, as.vega)
+    x$properties <- lapply(x$properties, function(p) { as.vega(p, untagged=TRUE) })
   }
 
   unclass(x)
