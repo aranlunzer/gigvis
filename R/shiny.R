@@ -132,8 +132,7 @@ observe_data <- function(r_spec, id, session) {
     # Create observers for each of the data objects
     for (name in ls(data_table, all.names = TRUE)) {
       # The datasets list contains named objects. The names are synthetic IDs
-      # that are present in the vega spec. The values can be a variety of things,
-      # see the if/else clauses below.
+      # that are present in the vega spec. The values can be a variety of things.
       local({
         # Have to do everything in a local so that these variables are not shared
         # between the different iterations

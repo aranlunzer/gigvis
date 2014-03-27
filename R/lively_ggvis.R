@@ -3,14 +3,13 @@
 # a ggvis(...) is basically a ggvis_node(...) - a structure with classes "ggvis", "ggvis_node"
 
 # this is the equivalent of mark_xxxx
-lively_table <- function(data, xProp, yProp) {
+lively_table <- function(dataReactive, sourceName) {
   structure(
     list(
       type = "lively_table",         # goes all the way through to the vega spec
-      data = data,
-      dataname = substitute(data),
-      xProp = xProp,
-      yProp = yProp
+      data = dataReactive,
+      dataname = deparse2(substitute(dataReactive)),
+      sourcename = sourceName
     ),
     class = c("lively_table_mark")    # to determine which as.vega gets used
   )
@@ -33,12 +32,14 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
   if (is.null(padding)) padding <- padding() # top, right, bottom, left
   # expecting the x argument to be a ggvis_table structure with a single
   # element, which is a lively_table_mark structure.
-  r_data <- reactive( x$data()[setdiff(names(x$data()),
-                                 c("chartx", "charty", "initialx","initialy","originalrow"))] )
-  data_id <- paste0(x$dataname, "_table")  # , digest(x$data))
-  datasets <- as.vega(isolate(r_data()), data_id)
+#   r_data <- reactive(
+#     x$data()[setdiff(names(x$data()), c("chartx", "charty", "originalrow"))]
+#     )
+  r_data <- x$data
+  data_id <- x$dataname
+  datasets <- as.vega(isolate(r_data()), data_id)   # the table's initial data
   data_table <- new.env(parent = emptyenv())
-  data_table[[data_id]] <- r_data  # users of data_table expect reactives
+  data_table[[data_id]] <- r_data  # a table of reactives for tracking updates to the data
 
   # inline version of a degenerate as.vega.mark
   markprops <- as.vega(props(backgroundColor:="none"))
@@ -51,9 +52,8 @@ as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
   #   if (!is.null(vegaprops$sharedProvenance)) {
   #     description <- fromJSON(vegaprops$sharedProvenance$value, asText=TRUE)
   #   }
-  description$datasource <- x$dataname #digest(isolate(x$data()))  # for figuring out row numbers
-  description$xProp <- x$xProp
-  description$yProp <- x$yProp
+  description$datasource <- x$sourcename # for figuring out row numbers
+  #description$annotations <- x$annotations
   
   mark_vega <- list(
     type = x$type,
@@ -136,74 +136,42 @@ observe_ggvis_lively <- function(r_gv, id, session, renderer = "svg", ...) {
   }
   
   force(id)
+
+  # We set up separate observers for spec and data, thus
+  # allowing rapid changes to data without recompiling the spec.  So we
+  # supply a reactive spec to the observe_spec and observe_data functions.
+  # But we build the spec with all its data, so first-time loading is
+  # fast, and suppress the first data-value updates (which would be redundant).
+
+  # If just the data elements (listed in the spec's data_table) are updated,
+  # that will be picked up by the observers set up by observe_data.
+  # If the spec as a whole is updated, the top-level observers set up
+  # by both functions will leap into action, sending browser messages
+  # and building new data observers as appropriate.
   
-  lively_separate_data = TRUE     # but see comments below for what this now means
-  
-  if (!lively_separate_data) {
-    # CURRENTLY NOT USED
-    # In this case we're sending the browser complete specs with data included.
-    # For ease of chart reconfiguration, we allow the reactive gv definition to
-    # deliver a NULL value.
-    # Every time r_gv changes we look at it.  If it's non-null we turn it into
-    # a static Vega spec and send that to the browser.
-    obs <- observe({
-      if (!is.null(r_gv())) {
-        spec <- NULL
-        all_rs <- trackReactivesDuring(function() {
-          spec <<- as.vega(r_gv(), session = session, dynamic = FALSE, ...)
-        })
-        all_chart_reactives[[id]] <<- all_rs
-        
-        session$sendCustomMessage("ggvis_lively_vega_spec", list(
-          chartId = id,
-          spec = spec,
-          renderer = renderer,
-          dataSeparate = FALSE
-        ))
-      }
-    }, label="obs_whole_spec")
-    
-#     session$onSessionEnded(function() {
-#       obs$suspend()
-#     })
-    
-  } else {
-    # Sending spec and data separately.
-    # In this case we want to set up separate observers for spec and data, thus
-    # allowing rapid changes to data without recompiling the spec.  So we
-    # supply a reactive spec to the observe_spec and observe_data functions.
-    # If just the data elements (listed in the spec's data_table) are updated,
-    # that will be picked up by the observers set up by observe_data.
-    # If the spec as a whole is updated, the top-level observers set up
-    # by both functions will leap into action, sending browser messages
-    # and building new data observers as appropriate.
-    
-    # In fact we now build the spec with all its data, so first-time loading is
-    # fast, and suppress the first data-value updates (which would be redundant).
-    r_spec <- reactive({
-      if (!is.null(r_gv())) {
-        gvChartVersions[[id]] <<- gvChartVersions[[id]] + 1
-        debugLog(paste0(
-          id, " version ", as.character(gvChartVersions[[id]]), " vega spec"))
-        spec_struct <- NULL
-# a place to profile the heaviest part of any chart re-generation
-#if (id == "plot1") Rprof("r_profile", memory.profiling=FALSE, interval=0.002)
-#if (id == "plot1") Rprof("r_profile", memory.profiling=FALSE, line.profiling=TRUE, interval=0.002)
-        all_rs <- trackReactivesDuring(function() {
-          spec_struct <<- as.vega(r_gv(), session = session, dynamic = FALSE)
-        })
-#if (id == "plot1") Rprof(NULL)
-        #all_rs <- attr(spec_struct, "all_reactives")
-        debugLog(paste0(
-          "all_chart_reactives for ", id, ": ", as.character(length(all_rs))))
-        all_chart_reactives[[id]] <<- all_rs
-        
-        spec_struct
-      }
-    }, label="react_spec")
-    lively_observe_spec(r_spec, id, session, renderer)
-    lively_observe_data(r_spec, id, session)
-  }
+  r_spec <- reactive({
+    if (!is.null(r_gv())) {
+      gvChartVersions[[id]] <<- gvChartVersions[[id]] + 1
+      debugLog(paste0(
+        id, " version ", as.character(gvChartVersions[[id]]), " vega spec"))
+      spec_struct <- NULL
+      # a place to profile the heaviest part of any chart re-generation
+      #if (id == "plot1") Rprof("r_profile", memory.profiling=FALSE, interval=0.002)
+      #if (id == "plot1") Rprof("r_profile", memory.profiling=FALSE, line.profiling=TRUE, interval=0.002)
+      all_rs <- trackReactivesDuring(function() {
+        spec_struct <<- as.vega(r_gv(), session = session, dynamic = FALSE)
+      })
+      #if (id == "plot1") Rprof(NULL)
+      #all_rs <- attr(spec_struct, "all_reactives")
+      debugLog(paste0(
+        "all_chart_reactives for ", id, ": ", as.character(length(all_rs))))
+      all_chart_reactives[[id]] <<- all_rs
+      
+      spec_struct
+    }
+  }, label="react_spec")
+  lively_observe_spec(r_spec, id, session, renderer)
+  lively_observe_data(r_spec, id, session)
 }
 
 # Create an observer for a reactive vega spec
@@ -216,8 +184,7 @@ lively_observe_spec <- function(r_spec, id, session, renderer) {
         chartId = id,
         version = gvChartVersions[[id]],
         spec = spec,
-        renderer = renderer,
-        dataSeparate = FALSE
+        renderer = renderer
         # timings = timeTracker      disabled
       ))
     }
@@ -259,14 +226,13 @@ lively_observe_data <- function(r_spec, id, session) {
           # Have to do everything in a local so that these variables are not shared
           # between the different iterations
           data_name <- name
-          # data_reactive <- get(data_name, data_table)
-#message(paste0("installing observer on: ", data_name, " currently ", attr(data_reactive, "observable")$.label)) 
+          data_reactive <- get(data_name, data_table)
+#debugLog(paste0("installing observer on: ", data_name, " currently ", attr(data_reactive, "observable")$.label)) 
           firstTime <- TRUE
           version <- gvChartVersions[[id]]
 
           obs <- observe({
-            # watch for changes in the appropriate reactive within the data table
-            data_reactive <- get(data_name, data_table)
+            # watch for changes in the data reactive
             debugLog(paste0("get: ", data_name, " for ", as.character(id), " version ", as.character(version))) 
             ok <- TRUE
             tryCatch({
@@ -282,19 +248,18 @@ lively_observe_data <- function(r_spec, id, session) {
                 debugLog("first time") 
               } else {
                 # split_df handling is different
-                #t <- system.time({    ## DEBUG
                 if (!is.split_df(data_content)) {
-                  session$sendCustomMessage("ggvis_lively_data", list(
+                  sendOrQueueData(list(
                     chartId = id,
                     version = version,
                     name = data_name,
                     value = as.vega(data_content, data_name)
-                  ))
+                  ), session)
                 } else {
                   # for now we can only send a replacement for a split_df that's always been split -
                   # and is thus already known on the JS side to be a nested data set.  so we 
                   # only need to send a replacement for the "_tree" structure.
-                  session$sendCustomMessage("ggvis_lively_data", list(
+                  sendOrQueueData(list(
                     chartId = id,
                     version = version,
                     name = paste0(data_name, "_tree"),
@@ -303,25 +268,8 @@ lively_observe_data <- function(r_spec, id, session) {
                       format = list(type = "treejson"),
                       values = list(children = lapply(data_content, function(x) list(children = df_to_json(x))))
                     ))
-                  ))
-
-                  # no need to send this.
-#                   session$sendCustomMessage("ggvis_lively_data", list(
-#                     chartId = id,
-#                     version = version,
-#                     name = data_name,
-#                     value = list(list(
-#                       name = data_name,
-#                       source = paste0(data_name, "_tree"),
-#                       transform = list(list(type = "flatten"))
-#                     ))
-#                   ))
-
-                  }
-                
-              # })   ## end of system.time
-              #debugLog(paste0("send time: ", round(1000*t["elapsed"]), "ms"))
-                
+                  ), session)
+                }
               }
             }
           }, label="obs_single_data")

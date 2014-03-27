@@ -62,11 +62,14 @@
 #' # Or
 #' pl <- pipeline(mtcars, transform_bin(10))
 #' sluice(pl, props(x = ~disp))
-transform_bin <- function(..., binwidth = guess(), origin = NULL, right = TRUE) {
+
+# ael : added datamax 
+transform_bin <- function(..., binwidth = guess(), origin = NULL, right = TRUE, datamax=NULL) {
   transform("bin",
     binwidth = binwidth,
     origin = origin,
-    right = right
+    right = right,
+    datamax = datamax
   )
 }
 
@@ -120,7 +123,7 @@ compute.transform_bin <- function(x, props, data) {
   }
 
   output <- bin(data, x_var = props$x,
-    binwidth = x$binwidth, origin = x$origin, right = x$right)
+    binwidth = x$binwidth, origin = x$origin, right = x$right, datamax = x$datamax)
 
   # TODO: Check for zero-row output for other data types
   if (is.data.frame(output) && nrow(output) == 0) return(output)
@@ -144,11 +147,13 @@ bin.data.frame <- function(x, x_var, ...) {
 
 # aam's new version, with indices__ property
 #' @export
-bin.numeric <- function(x, weight = NULL, binwidth = 1, origin = NULL, right = TRUE) {
+bin.numeric <- function(x, weight = NULL, binwidth = 1, origin = NULL, right = TRUE, datamax = NULL) {
   stopifnot(is.numeric(binwidth) && length(binwidth) == 1)
   stopifnot(is.null(origin) || (is.numeric(origin) && length(origin) == 1))
   stopifnot(is.flag(right))
   
+  if (is.null(datamax)) datamax <- max(x)
+
   if (length(na.omit(x)) == 0) {
     return(data.frame(
       count__ = numeric(0),
@@ -164,7 +169,6 @@ bin.numeric <- function(x, weight = NULL, binwidth = 1, origin = NULL, right = T
   
   # ael - bins go from origin to the max of the data.  if the origin is greater than
   # the max, ignore it.
-  datamax <- max(x)
   if (is.null(origin) || origin > datamax) {
     breaks <- fullseq(range(x), binwidth, pad = TRUE)
   } else {

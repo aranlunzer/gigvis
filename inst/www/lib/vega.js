@@ -1,3 +1,5 @@
+// vega, with various ael hacks/fixes
+
 vg = (function(d3, topojson) { // take d3 & topojson as imports
   var vg = {
     version:  "1.3.3", // semantic versioning
@@ -2166,9 +2168,16 @@ var vg_gradient_id = 0;vg.canvas = {};vg.canvas.path = (function() {
   var arc_path    = d3.svg.arc(),
       area_path   = d3.svg.area().x(x).y1(y).y0(yh),
       line_path   = d3.svg.line().x(x).y(y),
-      symbol_path = d3.svg.symbol().type(shape).size(size);
-  
-  var mark_id = 0,
+      // ael: cater for a hack to introduce new custom shapes
+      // symbol_path = d3.svg.symbol().type(shape).size(size);
+
+      symbol_path = function(o) {
+        return vg.svg.marks.customSymbolTypes && vg.svg.marks.customSymbolTypes.indexOf(shape(o)) != -1
+            ? vg.svg.marks.customSymbol().type(shape).size(size)(o)
+            : d3.svg.symbol().type(shape).size(size)(o)
+      }
+
+      var mark_id = 0,
       clip_id = 0;
   
   var textAlign = {
@@ -2301,7 +2310,8 @@ var vg_gradient_id = 0;vg.canvas = {};vg.canvas.path = (function() {
         a = o.angle || 0,
         align = textAlign[o.align || "left"],
         base = o.baseline==="top" ? ".9em"
-             : o.baseline==="middle" ? ".35em" : 0;
+             : o.baseline==="middle" ? ".35em" : 0,
+        cursor = o.cursor || null;    // ael added
   
     this.setAttribute("x", x + dx);
     this.setAttribute("y", y + dy);
@@ -2313,7 +2323,9 @@ var vg_gradient_id = 0;vg.canvas = {};vg.canvas.path = (function() {
     
     if (base) this.setAttribute("dy", base);
     else this.removeAttribute("dy");
-    
+
+    if (cursor) this.setAttribute("cursor", cursor);   // ael added
+                                 
     this.textContent = o.text;
     this.style.setProperty("font", fontString(o), null);
   }
@@ -4759,7 +4771,7 @@ vg.scene.item = function(mark) {
     var data = vg.scene.data(
       def.from ? def.from(db, node, parentData) : null,
       parentData);
-    
+                    
     // build node and items
     node = buildNode(def, node);
     node.items = buildItems(def, data, node);
@@ -5218,6 +5230,7 @@ vg.scene.item = function(mark) {
           axisDef = a.def();
           axisItems[i] = vg.scene.build(axisDef, this._data, axisItems[i]);
           axisItems[i].group = group;
+                     
           encode.call(this, group, group.axisItems[i], axisDef, trans);
         });
       }
@@ -5419,7 +5432,7 @@ vg.scene.transition = function(dur, ease) {
     var fmt = tickFormat==null ? (scale.tickFormat ? scale.tickFormat.apply(scale, tickArguments) : String) : tickFormat;
     major.forEach(function(d) { d.label = fmt(d.data); });
     var tdata = title ? [title].map(vg.data.ingest) : [];
-    
+
     // update axis def
     def.marks[0].from = function() { return grid ? major : []; };
     def.marks[1].from = function() { return major; };
@@ -5840,7 +5853,9 @@ function vg_axisTitle() {
         baseline: {value: "middle"},
         text: {field: "data"}
       },
-      update: {}
+      update: {
+        text: {field: "data"}     // ael added
+      }
     }
   };
 }

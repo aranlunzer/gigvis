@@ -7,10 +7,8 @@
 oneTimeInitShinyGgvis = function() {
   window.shinyGgvisInitialized = true;
 
-  var debug = false;
+  var debug = true;
 
-  var livelyPendingData = {};
-  var livelyPendingCharts = {};
   var livelyRenderedCharts = {};
   var livelyDataTriggers = {};
   var livelyEditRange = null;      // last used edit range, suitable for creating a sweep
@@ -39,6 +37,9 @@ oneTimeInitShinyGgvis = function() {
   Shiny.resetSweep = function() {
     Shiny.numScenarios = Shiny.visitScenario = 0;
     Shiny.timestampedOnInputChange("trigger", { message: "resetSweep" });
+  }
+  Shiny.suppressEdits = function(bool) {
+    Shiny.timestampedOnInputChange("trigger", { message: "suppressEdits", args: { bool: bool } });
   }
   
   var ggvisOutputBinding = new Shiny.OutputBinding();
@@ -146,98 +147,92 @@ oneTimeInitShinyGgvis = function() {
     var version = message.version;
     var spec = message.spec;
     var renderer = message.renderer;
-    var dataSeparate = message.dataSeparate;    // whether data are sent separately
-    console.log("ggvis_lively_vega_spec", chartId, version, spec); // { dataSeparate: dataSeparate }); // , message.timings);
+    console.log("ggvis_lively_vega_spec", chartId, version, spec);
 
-    // If data are included, we can build and render immediately.
-    if (!dataSeparate) return buildLivelyChart(spec, chartId, version, renderer, false);
-    
-    // But if data are being sent separately, add the details for this chart to
-    // the pending-charts list, along with an extracted list of all the data
-    // sources (with the right version number) the chart will need.
-    var dataNames = spec.data.map(function(dSpec) { return dSpec.name });
-    livelyPendingCharts[chartId] = { version: version, dataNames: dataNames, spec: spec, renderer: renderer };
-
-    checkPendingChartsAndData();
+    buildLivelyChart(spec, chartId, version, renderer);
+    $world.setHandStyle(null);
   });
 
-  // receive a data set for a chart whose spec may or may not have been sent yet
+  // receive a data set for a chart whose spec we (these days) assume has already been sent
   Shiny.addCustomMessageHandler("ggvis_lively_data", function(message) {
+    // new regime (post-v0.2): message elements are chartId and valueList.
+    // we've also introduced "r_default_axisSpec", a pseudo-dataset used to set axis properties.
     var chartId = message.chartId;
-    var version = message.version;
-    var name = message.name;
-    // before we started dealing with dynamic split dfs, message.value would always be a 
-    // one-element array holding a { name: n, values: valueArray } object.
-    // now that object could also be...
-    //   { name: format: values: {children: } }  for a xxx_tree dataset
-    //   { name: source: transform: }    for using the result of parsing a xxx_tree
-    var dataSpec = message.value[0];
-    var values = dataSpec.values;   // may be undefined
-if (debug) console.log("data", chartId, version, name);
-
-    // If the data spec belongs to a chart that's already rendered, and contains a
-    // values array, send it in.
+    // Check that the data spec belongs to a chart that's already rendered.
     var existingChartDetails = livelyRenderedCharts[chartId];
-    if (existingChartDetails && existingChartDetails.version == version) {
-      if (values) {  // NB: for a tree dataset sent as r_foo and r_foo_tree, r_foo has no values 
-        var chart = existingChartDetails.chart;
-        var needsSort = false;
-        // HUMONGOUS HAIRY HACK
-        // if there isn't a cleaner way of doing this, we should add one
+    if (existingChartDetails) {
+      var chart = existingChartDetails.chart;
+      var valueList = message.valueList;   // a list (i.e., object) mapping dataName -> value
+      // each value associated with a dataName is expected to be a one-element array containing
+      //   { name: n, values: valueArray }  (see as.vega.data.frame), or
+      //   { name: format: values: {children: } }  for a xxx_tree dataset
+      var axesChanged = false;
+      var needsSort = false;
+
+      var dataNames = Object.keys(valueList);
+      if (debug) console.log("data", chartId, dataNames.join());
+      dataNames.forEach(function(name) {
+        var dataSpec = valueList[name][0];
+        var values = dataSpec.values;
+        // HUMONGOUS HAIRY HACK for dealing with tree data
+        // if there really isn't a cleaner way of doing this, we should add one
         if (values.children) {
           var treeDef = chart.model().defs().data.load[name];
-          treeDef[0].children = values.children;    // mega-hack
+          treeDef[0].children = values.children;    // hackadelica
           var subDataSpec = {};
           subDataSpec[name] = treeDef;
           chart.data(subDataSpec);
         } else {
-          var format = dataSpec.format;
-          var subData = {};
-          subData[name] = vg.data.read(values, format);
-          chart.data(subData);
-          // if (name=="r_sweep_scatter") console.log(subData[name]);  // often useful  :-)
-          needsSort = subData[name].length>0 && (subData[name][0].scenario!==undefined);
+          var formattedData = vg.data.read(values, dataSpec.format);
+          if (name=="r_default_axisSpec") {
+            // special dataset for (re)defining the axes and scales
+            axesChanged = true;
+            for (var i=0; i<formattedData.length; i++) {
+              var axisSpec = formattedData[i];
+              var scaleName = axisSpec.scale;
+              var axisDef = $.grep(chart.model().defs().marks.axes, function(d) { return d.scale==scaleName})[0];
+              var newTitle = axisSpec.title;
+              var suppress = (newTitle == "");
+              axisDef.title = newTitle;
+              var properties = axisDef.properties || {};
+              var lineColour = (scaleName=="yhist" ? "gray" : "black");
+              var labelColour = (scaleName=="yhist" ? "gray" : "black");
+              if (suppress) lineColour = labelColour = null;
+              properties.axis = { stroke: { value: lineColour } };
+              properties.ticks = { stroke: { value: lineColour }};
+              properties.labels = { fill: { value: labelColour }};
+              axisDef.properties = properties;
+              if (!suppress) {
+                var scaleDef = $.grep(chart.model().defs().marks.scales, function(d) { return d.name==scaleName})[0];
+                var newMax = axisSpec.max;
+                scaleDef.domain[1] = axisSpec.max;
+              }
+            }
+          } else {
+            var subData = {};
+            subData[name] = formattedData;
+            chart.data(subData);
+            // if (name=="r_sweep_scatter") console.log(subData[name]);  // often useful  :-)
+            needsSort = subData[name].length>0 && (subData[name][0].scenario!==undefined);
+          }
         }
-        chart.update();
-        if (needsSort) chart.sortScenarioItems();
-        chart.highlightDragItems();
-      }
-      var trigger = livelyDataTriggers[name];
-      if (trigger) { delete livelyDataTriggers[name]; setTimeout(trigger, 1) }; 
-      // chart.update({props: "update", duration: 500});
-    } else {
-      // put the dataSpec in the pendingData collection, for use by the chart when all
-      // data are assembled.
-      var dataRecord = livelyPendingData[chartId] || (livelyPendingData[chartId] = {});
-      if (dataRecord.version != version) {   // wrong version, or none
-        dataRecord.version = version;
-        dataRecord.datasets = {};
-      }
-      dataRecord.datasets[name] = dataSpec;
+        var trigger = livelyDataTriggers[name];
+        if (trigger) { delete livelyDataTriggers[name]; setTimeout(trigger, message.duration) }; 
+      })
+      $world.setHandStyle(null);
 
-      checkPendingChartsAndData();
+      if (axesChanged) {
+        chart.model()._reset.axes = true;
+        chart.model().reset();
+      }
+      chart.update({duration: message.duration});
+
+      if (needsSort) chart.sortScenarioItems();
+      chart.highlightDragItems();
     }
   });
   
-  function checkPendingChartsAndData() {
-    // For each chart in the pendingCharts list, see if all the datasets with
-    // the right version number have turned up yet.  If so, build the chart and
-    // supply the data.
-if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
-    for (var chartId in livelyPendingCharts) {
-      var pendingChartRecord = livelyPendingCharts[chartId];
-      var version = pendingChartRecord.version;
-      var pendingDataRecord = livelyPendingData[chartId];
-      if (pendingDataRecord && (pendingDataRecord.version == version)) {
-        var dataNames = pendingChartRecord.dataNames;  // what the plot wants
-        if (dataNames.every(function (name) { return pendingDataRecord.datasets[name] != undefined })) {
-          buildLivelyChart(pendingChartRecord.spec, chartId, version, pendingChartRecord.renderer, true);  // true because data is separate; look in pendingData.
-        }
-      }
-    }
-  }
-
-  function buildLivelyChart(spec, chartId, version, renderer, dataSeparate) {
+  function buildLivelyChart(spec, chartId, version, renderer) {
     // NB: still using the old way of building charts.  ggvis has some new stuff.
     // NB: this is asynchronous.  On return, the chart won't yet have been built.
 
@@ -262,49 +257,8 @@ if (debug) console.log("pending:", livelyPendingCharts, livelyPendingData);
       chart.viewDivObj = viewDivObj;        // a convenient way to get back to the JS element
       livelyRenderedCharts[chartId] = { version: version, chart: chart };
 
-      if (!dataSeparate) {
-        chart.update();   // need to render once anyway
-        if (movingItems(chart).length) {
-          chart.update({ props: "enter" });
-          setTimeout(function(){$world.setHandStyle(null)}, 250);
-          chart.update({ props: "update", /*items: movingItems(chart),*/ duration: 400 });
-        }
-      } else {
-        // this function is only called once the pendingData are complete
-/*  ***** currently not used *****
-Code to load separately sent data (including tree-structured data) into a newly created chart.  Starting point: try using vg.parse.data here to get the model to pick up the data that need some processing such as tree expansion and flattening.  in vg.parse.spec, vg.parse.data is called with function() { callback(viewConstructor) } that gets called when all datasets have successfully loaded.  before that vg.parse.data returns a model with elements defs, load, flow, source... representing all loaded data, with flow and source set up when called for.  in vg.parse.spec this goes into the data element.
-
-only Model.data() attends to the data.flow element.  Model.data() is called from View.data().  the former will only try to ingest datasets whose names are already registered in _defs.data.defs.  ingest will apply transforms if they are already registered in  _defs.data.flow (which is what we'd need for flattening the tree data to its non-tree analogue).
-
-datasets with a "source" property are handled as part of the Model.ingest() processing.  for example, a split df results in a dataset foo that has a source foo_tree.  this sets up an entry _defs.data.source["foo_tree"] = ["foo"]  (see vg.parse.data).  then in vg.model.dependencies() - called from model.ingest(), after model._data["foo_tree"] has been set up, following transformation - all datasets that depend on foo_tree are ingested in turn.
-
-so it looks like...  if we can set up the defs, flow, load, source elements in the model._data then call View.data() we might be laughing.  or in fact if the parsing has gone ok we don't have to worry which ones need parsing; they'll have been put into the defs element, with the things they depend on in source etc.
-
-...note that this is only really needed in the case where we have more than one dataset, with dependency relationships.
-
-so then the question is how to send an update to a dataset on which another depends - the example for now being tree-structured data.  in theory there should be a way to do it by just replacing the foo_tree definition - the { name: format: values: } object in data.defs - then saying "model.ingest("foo_tree")", which would do the tree parsing then tell "foo" to update itself too.  how to do this through the View...
-*/
-
-//  simple version:      chart.data(livelyPendingData[chartId].datasets);
-
-        // reverse engineering the Vega code suggested that the following might work.
-        // first prepare a dataDefs structure as a simple array with elements
-        //    { name: ... }   (see the comment in ggvis_lively_data method above)
-        var pendingDataRecord = livelyPendingData[chartId];
-        var dataDefs = [];
-        for (var dataId in pendingDataRecord.datasets) {
-          dataDefs.push(pendingDataRecord.datasets[dataId])
-        }
-        // then tell Vega to parse that structure, and load the result.
-        var dataSpec = vg.parse.data(dataDefs, function() {
-          chart.model().defs().data = dataSpec;   // shove the filled-in spec into the model where expected
-          chart.data(dataSpec.load);  // then load all datasets listed in the load element
-          chart.update();
-          delete livelyPendingCharts[chartId];
-          delete livelyPendingData[chartId];
-        })
-      }
-
+      chart.update();
+      
       function allCharts() {
         var charts = [];
         $(".ggvis-output").each(function(i, el) {
@@ -328,21 +282,35 @@ so then the question is how to send an update to a dataset on which another depe
         return matches
       }
       
+      function parsedDataRows(item) {
+        // assume there is a datarows element, and that it's a JSON-encoded collection.
+        // parse it and cache the result.
+        if (!item.cachedDataRows) item.cachedDataRows = JSON.parse(item.datarows);
+        return item.cachedDataRows
+      }
+      
+      function dataRowOrRole(item) {
+        // if the item has a datarows element, return the first entry in that collection.
+        if (item.datarows) return parsedDataRows(item)[0];
+        
+        return item.datarole;  // better have one...
+      }
+      
       function relatedItems(chart, item) {
         // ael: return a collection of vega-level items
         //debugger;
         
-        var rownumbers = JSON.parse(item.datarows);
+        var rownumbers = parsedDataRows(item);
         // console.log(rownumbers[0], item);
         var data_id = item.mark.def.description.datasource;
         var p = data_id.indexOf(":");
         if (p != -1) data_id = data_id.substr(0, p);
         
         var matches = [];
-        // used to be: d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows && d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
+        // allMarkableElements returns just items that have a datarows member
         allMarkableElements(chart).filter(function(d) { return d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
           var item = el.__data__;
-          (JSON.parse(item.datarows)).some(function(thisID) {
+          parsedDataRows(item).some(function(thisID) {
             if (rownumbers.indexOf(thisID) >= 0) {
               matches.push(item);
               return true;
@@ -361,12 +329,6 @@ so then the question is how to send an update to a dataset on which another depe
         return matches;
       }
       
-      // currently called only from unused code
-      function movingItems(chart) {
-        // ael: return a collection of vega-level items that have initialx, initialy props
-        return d3.select(chart._el).selectAll("svg.marks path").filter(function(d) { return d && d.datum && d.datum.data && d.datum.data.initialx })[0].map(function(el) { return el.__data__ });
-      }
-
       function parseDragSpec(dragSpec) {
         // a dragSpec has comma-separated components  scale, dataset, column[, triggerName]
         if (!dragSpec) return null;
@@ -494,7 +456,7 @@ so then the question is how to send an update to a dataset on which another depe
         }
         jogSpec.xSpec = xSpec;
         jogSpec.ySpec = ySpec;
-        jogSpec.row = JSON.parse(item.datarows)[0];
+        jogSpec.row = dataRowOrRole(item);
       }
 
       function startJog(chart) {
@@ -664,7 +626,7 @@ so then the question is how to send an update to a dataset on which another depe
       }
       
       chart.highlightDragItems = (function () {
-          if (this.dragItem) {
+          if (this.dragItem && this.dragItem.datarows) {
             var dragItem = this.dragItem;
             allCharts().forEach(function(ch) {
               ch.update({ props: "highlight", items: relatedItems(ch, dragItem) })
@@ -693,6 +655,7 @@ so then the question is how to send an update to a dataset on which another depe
         var jogSpec = {};
         initJogSpec(jogSpec, xSpec, ySpec);  // extract dataset, scales etc
         if (linearise) {
+          // currently not used
           var start = dragPositions.first();
           var end = dragPositions.last();
           var xDiff = start.x ? end.x - start.x : 0;
@@ -766,7 +729,7 @@ so then the question is how to send an update to a dataset on which another depe
       chart.sortScenarioItems = (function () {
         // sort such that scenario 0's marks come at the end
         //if (debug) console.log("sorting");
-        // NB: we exclude items that appear to have been assigned index-based keys by vega, because changing their order causes Vega to lose track of them.  We could probably do a much better job by adding the logic to sort within more constrained ranges - notably, ensuring we only sort against each other the elements for a single mark. 
+        // NB: we exclude items that appear to have been assigned index-based keys by vega, because changing their order causes Vega to lose track of them.  We could probably avoid this hassle by adding the logic to sort within more constrained ranges - notably, ensuring we only sort against each other the elements for a single mark. 
         d3.select(this._el).selectAll("svg.marks rect, svg.marks path").filter(function(d) { return d && (d.scenario!==undefined) && !(d.key.toFixed)}).sort(function(a,b) { return b.scenario-a.scenario } );
       }).bind(chart);
       
@@ -803,7 +766,7 @@ so then the question is how to send an update to a dataset on which another depe
           var dataset = (xSpec && xSpec.dataset) || (ySpec && ySpec.dataset);
           if (dataset=="workingDataRanges") {
             var column = (xSpec && xSpec.column) || (ySpec && ySpec.column);
-            var itemRow = JSON.parse(item.datarows)[0];
+            var itemRow = dataRowOrRole(item);
             window.Shiny.timestampedOnInputChange("trigger", { message: "clearControl", args: { dataset: dataset, row: itemRow, column: column } });
           }
         }
@@ -817,16 +780,17 @@ so then the question is how to send an update to a dataset on which another depe
         //    args:
         //      0 -> { dataset: "workingData", column: "wt", row: 6, value: 3.5 }
         //      1 -> { dataset: "workingData", column: "mpg", row: 6, value: 15 }
+        console.log("mousedown on ", item);
         if (item.dragx || item.dragy) {        // this is an item the user can drag
           var handleSize = 6;
           var handle = lively.morphic.Morph.makePolygon(
-                [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize)], 2, Color.black, Color.black);
+                [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize), pt(0,0)], 2, Color.black, Color.black);
 
           this.dragItem = item;
           this.lastMouseWasDrag = false;
           handle.dragStartPos = handle.lastDragPos = evt.getPosition();
           handle.dragPositions = [handle.dragStartPos];
-          handle.itemRow = JSON.parse(item.datarows)[0];
+          handle.itemRow = dataRowOrRole(item);
           handle.chart = this;
           
           handle.xSpec = parseDragSpec(item.dragx);   // may be null
@@ -843,6 +807,18 @@ so then the question is how to send an update to a dataset on which another depe
             }, 100);    // leave a little time for startEdit
           };
 
+          // set up the function for interpreting mouse points during this manipulation
+          var xScale = handle.xSpec && handle.xSpec.scale;
+          var yScale = handle.ySpec && handle.ySpec.scale;
+          var xColumn = handle.xSpec ? handle.xSpec.column : "-";
+          var yColumn = handle.ySpec ? handle.ySpec.column : "-";
+          if (xScale == "identity" || yScale == "identity") {
+            handle.dragStartValue = item.value;
+            handle.dragToPoint = function(evtPos) { sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [pt(handle.dragStartValue + evtPos.x - handle.dragStartPos.x, -1000)])};
+          } else {
+            handle.dragToPoint = function(evtPos) { sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [toChartCoords(evtPos, true, handle.chart, xScale, yScale)]) };
+          }
+
           // handle.onFocus = function() { console.log("handle focus") }
           // handle.onBlur = function() { console.log("handle blur") }
           
@@ -856,11 +832,7 @@ so then the question is how to send an update to a dataset on which another depe
               vs[1] = vs[0].addPt(evtPos.subPt(this.rangeStartPos));
               this.rangeLine.setVertices(vs);
             }
-            var xScale = this.xSpec && this.xSpec.scale;
-            var yScale = this.ySpec && this.ySpec.scale;
-            var xColumn = this.xSpec ? this.xSpec.column : "-";
-            var yColumn = this.ySpec ? this.ySpec.column : "-";
-            sendEditMessage(this.dataset, [xColumn, yColumn], this.itemRow, [0], [toChartCoords(evtPos, true, this.chart, xScale, yScale)]);
+            this.dragToPoint(evtPos);
           }).bind(handle), 200);
 
           handle.addScript(function onDrag(evt) {
@@ -1272,8 +1244,6 @@ so then the question is how to send an update to a dataset on which another depe
 
   refreshShinyGgvis = function() {
     // The user is throwing away the existing chart(s) and building anew. 
-    livelyPendingData = {};
-    livelyPendingCharts = {};
     livelyRenderedCharts = {};
     
     livelyDataTriggers = {};

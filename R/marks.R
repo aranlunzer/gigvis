@@ -37,11 +37,11 @@ default_mark_properties.default <- function(mark) {
 #' @rdname marks
 #' @export
 mark_symbol <- function(props = NULL, data = NULL)
-  mark("symbol", props = merge_props(props, props(datarows:=~singlerowstring)), data = data)
+  mark("symbol", props = props, data = data)
 #' @export
 valid_mark_properties.mark_symbol <- function(mark) {
   c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
-    "strokeOpacity", "size", "shape", "key", "datarows", "scenario", "sharedProvenance", "dragx", "dragy", "initialx", "initialy")
+    "strokeOpacity", "size", "shape", "key", "datarows", "scenario", "sharedProvenance", "dragx", "dragy")
 }
 #' @export
 default_mark_properties.mark_symbol <- function(mark) {
@@ -128,7 +128,7 @@ mark_text <- function(props = NULL, data = NULL) mark("text", props = props, dat
 valid_mark_properties.mark_text <- function(mark) {
   c("x", "y", "text", "opacity", "fill", "fillOpacity", "stroke",
     "strokeWidth", "strokeOpacity", "align", "baseline", "dx", "dy",
-    "angle", "font", "fontSize", "fontWeight", "fontStyle", "key", "datarows", "scenario", "sharedProvenance")
+    "angle", "font", "fontSize", "fontWeight", "fontStyle", "cursor", "key", "datarows", "scenario", "sharedProvenance", "dragx", "dragy")
 }
 #' @export
 default_mark_properties.mark_text <- function(mark) {

@@ -25,7 +25,7 @@ as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
   data_names <- ls(data_table, all.names = TRUE)
   
   if (dynamic) {
-    # Don't provide data now, just the name.
+    # Don't provide data now, but just the name.
     # If a data source is split, Vega expects two datasets: foo and foo_tree.
     # This is handled in the non-dynamic branch by as.vega.split_df
     # returning two list entries.  Here we prepare the way for those two datasets.
@@ -43,9 +43,9 @@ as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
   } else {
     # not dynamic: include the data in the vega spec
     datasets <- unlist(lapply(data_names, function(name) {
-      data <- isolate(data_table[[name]]())
-      as.vega(data, name)
-    }), recursive = FALSE)
+        data <- isolate(data_table[[name]]())
+        as.vega(data, name)
+      }), recursive = FALSE)
   }
   
   scales <- add_default_scales(x, nodes, data_table)
@@ -61,7 +61,7 @@ as.vega.ggvis <- function(x, session = NULL, dynamic = FALSE, ...) {
   opts <- add_default_opts(x$opts[[1]] %||% opts())
 
   spec <- list(
-    data = datasets,
+    data = datasets,   # includes data if dynamic is FALSE, otherwise just data names
     scales = unname(scales),
     marks = lapply(nodes, as.vega),
     width = opts$width,

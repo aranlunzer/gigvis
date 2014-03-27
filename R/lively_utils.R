@@ -198,38 +198,54 @@ transform_edit <- function(data, rows, columns, replacement_values){
 }
 
 # ael
-dataBins <- function(data, property, binwidth, binoffset, blended=FALSE) {
+dataBins <- function(data, property, datamax, binwidth, binRelOffset, blended=FALSE) {
   # "blended" just means turning off the prominence - of the default-scenario histogram.
   # if there is a histogram sweep, this means making it disappear.  otherwise just lose
   # the outline.
+  # added "datamax" arg throughout computation, to generate bins (empty if nec) across a 
+  # fixed range.
   if (nrow(data)==0) emptyBins()
   else {
-    bins <- compute(transform_bin(binwidth=binwidth, origin=binoffset),
-            props(x=prop(as.name(property))),
-            data)
+    bins <- compute(transform_bin(binwidth=binwidth, origin=binwidth*binRelOffset, datamax=datamax),
+              props(x=prop(as.name(property))),
+              data)
     bins$keyField = as.character(1:nrow(bins))
     # NB: strokeWidth and fillOpacity are both ignored on the sweep histograms
     bins$strokeWidth = if (blended) 0 else 1
     bins$fillOpacity = if (blended &&
                             (length(isolate(gvSweep$binwidth))>0 || length(isolate(gvSweep$binoffset))>0))
                           0 else 0.3
+
+    # indices in the bins correspond to the supplied data, which may be a subset.  to allow
+    # brushing to work, re-jig to store the original row numbers.
+    if (!is.null(data$originalrow)) {
+      originals <- data$originalrow
+      binrows <- as.character(bins$indices__)  # indices__ is a factor of JSON-encoded lists
+      bins$indices__ <- unlist(lapply(binrows, function(indsJ) {
+        toJSON(lapply(fromJSON(indsJ), function(ind) { originals[[ind]] }), collapse="")
+      }))
+    }
+    
     bins
   }
 }
 
-resLinesInChartDomain <- function(trialdata, realdata, xProp, yProp, giveme="vert") {
+resLinesInChartDomain <- function(trialdata, realdata, dataMask, xProp, yProp, giveme="vert", visibleWidth) {
   # NB we expect trialdata to have columns chartx, charty - whereas from realdata we have
   # to extract the columns specified as xProp and yProp.
   # the result is returned with chartx, charty columns.
-  if (is.null(trialdata) || is.null(realdata)) return(emptySplit);
-
+  if (is.null(trialdata) || is.null(realdata)) return(emptyLines());
+  
   tempReal <- data.frame(x=realdata[[xProp]], y=realdata[[yProp]])
   tempTrial <- data.frame(x=trialdata$chartx, y=trialdata$charty)
   res <- resLines(tempTrial, tempReal, giveme)
-  if (identical(res, NA)) return(emptySplit)
+  if (identical(res, NA)) return(emptyLines())
   
   res <- setNames(res, c("chartx", "charty"))
   res$item <- rep(1:nrow(realdata), each=2)
+  res$strokeWidth <- 0
+  duplicatedMask <- rep(dataMask, each=2)
+  res[which(duplicatedMask), "strokeWidth"] <- visibleWidth
   split_df(res, quote(item), env=NULL)
 }
 
@@ -238,8 +254,8 @@ lmLine <- function(realdata, xProp, yProp) {
   # semi-hack: for now we force this to be a (one-piece) split df, to ease the transition to a sweep
   if (nrow(realdata)<2) return(emptySplit)
 
-  #lmRes <- lm(realdata[[yProp]] ~ realdata[[xProp]])
-  lmRes <- lm(realdata[[yProp]] ~ realdata[[xProp]], qr=FALSE)
+  #lmRes <- lm(realdata[[yProp]] ~ realdata[[xProp]], qr=FALSE)
+  lmRes <- lm(eval(parse(text=paste0(yProp, " ~ ", xProp))), realdata, qr=FALSE)
   slope <- lmRes$coefficients[[2]]
   intercept <- lmRes$coefficients[[1]]
   if (!is.finite(slope) || !is.finite(intercept)) return(emptySplit)  # e.g. if all x values are same
@@ -264,7 +280,11 @@ demingLine <- function(realdata, xProp, yProp) {
 }
 
 emptySmoothLine <- function() {
-  customiseAndSplitDF(list(chartx=c(-1000), charty=c(-1000)), list(y_lower__=0, y_upper__=0))
+  customiseAndSplitDF(list(chartx=c(offChart), charty=c(offChart)), list(y_lower__=0, y_upper__=0))
+}
+
+emptyLines <- function() {
+  customiseAndSplitDF(list(chartx=c(offChart,offChart+1), charty=c(offChart,offChart+1)), list(strokeWidth=0))
 }
 
 emptyBins <- function() {
@@ -287,6 +307,7 @@ smoothLine <- function(realdata, xProp, yProp, n, se) {
   # caller expects chartx and charty in place of x and y
   names(df)[1] <- "chartx"
   names(df)[2] <- "charty"
+  # debugLog(capture.output(print(df)))
   df$grouping <- 1
   split_df(df, quote(grouping), env=NULL)
 }
@@ -369,37 +390,66 @@ update_static <- function(name, value, log=FALSE) {
   if (log) debugLog(capture.output(value))
 }
 
-clearInvalidSource <- function(sourceName) {
-  # we hold off updating the reactive invalid_sources until we know it's empty - because
-  # otherwise we'll keep waking up observers for no good reason.
-  
-  # old version:
-  #sources=isolate(gvReactives$invalid_sources)
-  #gvReactives$invalid_sources <- sources[sources!=sourceName]
+clearInvalidBuildSource <- function(sourceName, clearRefresh) {
+  # hold off updating the reactive waiting_for_build until sources is empty
+  sources <- gvStatics$invalid_build_sources
+  gvStatics$invalid_build_sources <<- sourcesNow <- sources[sources!=sourceName]
+  if (length(sourcesNow) == 0) gvReactives$waiting_for_build <- FALSE
+#  if (length(sources)>0) debugLog(paste0("remaining build sources: ", length(sourcesNow)))
+  if (clearRefresh && gvStatics$waiting_for_refresh) {
+    clearInvalidRefreshSource(sourceName)
+    # if that cleared the last waiting source, send any queued data
+    if (!gvStatics$waiting_for_refresh) sendQueuedData(TRUE)   # TRUE means this is a synched send
+  }
+}
 
-  sources <- gvStatics$invalid_sources
-  gvStatics$invalid_sources <<- sourcesNow <- sources[sources!=sourceName]
-  if (length(sourcesNow) == 0) gvReactives$waiting_for_sources <- FALSE
-  
-  # debugLog(paste0("remaining invalid sources: ", length(isolate(gvReactives$invalid_sources))))
+clearInvalidRefreshSource <- function(sourceName) {
+  sources <- gvStatics$invalid_refresh_sources
+  #debugLog(paste0("removing source: ", sourceName))
+  gvStatics$invalid_refresh_sources <<- sourcesNow <- sources[sources!=sourceName]
+  if (length(sourcesNow) == 0) gvStatics$waiting_for_refresh <<- FALSE
+#   if (length(sources)>0) {
+#     debugLog(paste0("remaining refresh sources: ", length(sourcesNow)))
+#     debugLog(paste(sourcesNow, collapse=" "))
+#   }
 }
 
 update_defaultReactive <- function(name, value, log=FALSE) {
   # make an update to a reactive in the gvSweep collection, and
   # remove its name from the invalid_sources list (if it was there).
-  gvDefault[[name]] <- value
-  debugLog(paste0("updated default reactive: ", name))
-  if (log) debugLog(capture.output(value))
-  clearInvalidSource(paste0("default_", name))
+  # if we're waiting for a refresh, but the value hasn't changed,
+  # also clear the refresh flag now (because we won't be getting a g_l_d message).
+  prev <- isolate(gvDefault[[name]])
+  changed <- !identical(prev, value)
+  if (changed) {
+    gvDefault[[name]] <- value
+    debugLog(paste0("updated default reactive: ", name))
+    if (log) debugLog(capture.output(value))
+  }
+  # HACK: axisSpec won't be called up explicitly by the chart, so always clear its flag
+  clearInvalidBuildSource(paste0("default_", name), (!changed || name=="axisSpec"))
 }
 
 update_sweepReactive <- function(name, value, log=FALSE) {
   # make an update to a reactive in the gvSweep collection, and
   # remove its name from the invalid_sources list (if it was there).
-  gvSweep[[name]] <- value
-  debugLog(paste0("updated sweep reactive: ", name))
-  if (log) debugLog(capture.output(value))
-  clearInvalidSource(paste0("sweep_", name))
+  prev <- isolate(gvSweep[[name]])
+  changed <- !identical(prev, value)
+  if (changed) {
+    gvSweep[[name]] <- value
+    debugLog(paste0("updated sweep reactive: ", name))
+    if (log) debugLog(capture.output(value))
+  }
+  clearInvalidBuildSource(paste0("sweep_", name), !changed)
+}
+
+suppressEdits <- function(bool) {
+  # only act if there are some edits to suppress
+  if (length(isolate(gvDefault$workingDataEdits))>0 || length(isolate(gvDefault$workingDataRanges))>0) {
+    refreshChart("plot1")
+    refreshChart("plot2")
+    gvSwitches$suppressEdits <- bool
+  }
 }
 
 resetSweep <- function() {
@@ -409,6 +459,7 @@ resetSweep <- function() {
 }
 
 setupNewSweep <- function(numScenarios) {
+  debugLog(paste0("new sweep of ", numScenarios))
   update_static("numScenarios", numScenarios)
   update_static("scenarioColours", colorRampPalette(c("blue", "red"))(numScenarios))
   # clear all sweepables
@@ -446,7 +497,7 @@ customiseAndSplitDF <- function(df, requiredCols) {
 bindSweepDFs <- function(dfs, colourProperty, requiredCols=list()) {
   # debugLog(capture.output(print(dfs)))
   if (length(dfs)==0) {
-    customiseDF(list(chartx=c(-1000), charty=c(-1000)), requiredCols)
+    customiseDF(list(chartx=c(offChart), charty=c(offChart)), requiredCols)
   } else {
     colouredDFs <- lapply(1:length(dfs), function(pi) {
       df <- dfs[[pi]]
@@ -463,17 +514,22 @@ bindSweepDFs <- function(dfs, colourProperty, requiredCols=list()) {
 bindSweepSplitDFs <- function(dfs, colourProperty, requiredCols=list()) {
   # debugLog(capture.output(print(dfs)))
   if (length(dfs)==0) {
-    customiseAndSplitDF(list(chartx=c(-1000), charty=c(-1000)), requiredCols)
+    customiseAndSplitDF(list(chartx=c(offChart), charty=c(offChart)), requiredCols)
   } else {
-    pieces <- do.call("c", dfs)
-    colouredPieces <- lapply(1:length(pieces), function(pi) {
-                              piece <- pieces[[pi]]
-                              colour <- gvStatics$scenarioColours[[pi]]
-                              piece[[colourProperty]] <- colour  # equiv to rep(colour, nrow(piece))
-                              piece$scenario <- pi
-                              piece})
+    # one df corresponds to one scenario, and hence one colour.
+    # each df is expected to have several pieces.
+    # so iterate through the dfs, updating all their pieces and gathering them into one.
+    dfColouredPieces <- lapply(1:length(dfs), function(scen) {
+                              colour <- gvStatics$scenarioColours[[scen]]
+                              pieces <- dfs[[scen]]     # one split_df, with indexable pieces
+                              lapply(1:length(pieces), function(pi) {
+                                piece <- pieces[[pi]]
+                                piece[[colourProperty]] <- colour
+                                piece$scenario <- scen
+                                piece})
+                        })
     # debugLog(capture.output(print(colouredPieces)))
-    structure(colouredPieces, class = "split_df", variables = NULL)
+    structure(do.call("c", dfColouredPieces), class = "split_df", variables = NULL)
   }
 }
 
@@ -535,15 +591,24 @@ mergeManipulationLists <- function(default, sweep) {
 }
 
 apply_dataEdits <- function(base, editML) {
-  # apply edits, supplied as a manipulation list, to the base data
-  result <- base
+  # apply edits, supplied as a manipulation list, to the base data.
+  # also maintain an up-to-date list of ranges for columns that have been edited in any row.
+  edited <- base
+  editedCols <- list()
   for (rowName in names(editML)) {
     es <- editML[[rowName]]
+    # debugLog(paste0("edit: ", rowName, capture.output(print(names(es)))))
     for (colName in names(es)) {
-      result[as.integer(rowName), colName] <- es[[colName]]
+      edited[as.integer(rowName), colName] <- es[[colName]]
+      editedCols[[colName]] <- T
     }
   }
-  result
+  colRanges <- gvStatics$baseRanges
+  for (colName in names(editedCols)) {
+    colRanges[[colName]] <- range(edited[[colName]])
+  }
+  update_static("unfilteredRanges", colRanges)
+  edited
 }
 
 merge_dataRanges <- function(default, sweep) {
@@ -600,7 +665,8 @@ range_controls <- function(editedBase, rangeML) {
     high <- rangeML[["2"]][[property]]   # or NULL
     if (is.null(high)) high <- NA
     rangeSetting <- c(low, high)
-    defaultRange <- range(editedBase[[property]])  # inefficient if dataset is big
+    # if no data points remain, put in a placeholder range that takes the marks off-chart 
+    defaultRange <- if (nrow(editedBase)==0) c(-100,-100) else gvStatics$unfilteredRanges[[property]]
     edited <- !is.na(rangeSetting)
     rangeIndicator <- ifelse(edited, rangeSetting, defaultRange)
     list(range=rangeIndicator, edited=edited)
@@ -617,18 +683,52 @@ range_controls <- function(editedBase, rangeML) {
   df$dragx <- c(dragx, dragx, "", "")
   df$dragy <- c("", "", dragy, dragy)
   df$edited <- c(xDF$edited, yDF$edited)
-  df$dotShape <- ifelse(df$edited, "diamond", "circle")
+  rangeShapes <- c("range-pointer-left", "range-pointer-right", "range-pointer-down", "range-pointer-up")
+  limitShapes <- c("limit-pointer-left", "limit-pointer-right", "limit-pointer-down", "limit-pointer-up")
+  df$dotShape <- ifelse(df$edited, limitShapes, rangeShapes)
   # debugLog(capture.output(print(data.frame(df))))
   data.frame(df)
 }
 
-setXYDataStatics <- function(workingData, xProp, yProp) {
-  baseData <- gvStatics$baseData
-  update_static("maxX", max(baseData[[xProp]]))
-  update_static("standardBin", gvStatics$maxX*0.2)
-  update_static("maxY", max(baseData[[yProp]]))
-  update_static("popupYRange", gvStatics$maxY*1.2)
+range_lines <- function(rangeControls) {
+  # turn the dataset provided by range_controls into a df for showing lines on the 
+  # chart for edited min/max values.  we need two lines for the ranges on the x and y axes,
+  # plus up to four more corresponding to the rangeControls rows for  minX, maxX, minY, maxY
+  topX <- gvStatics$maxX * 1.1
+  topY <- gvStatics$maxY * 1.1
+  # limit lines: (minX, 0 to minX, topY) (maxX, 0 to maxX, topY) (0, minY to topX, minY) (0, maxY to topX, maxY)
+  minX <- as.numeric(rangeControls[1, "chartx"])
+  maxX <- as.numeric(rangeControls[2, "chartx"])
+  minY <- as.numeric(rangeControls[3, "charty"])
+  maxY <- as.numeric(rangeControls[4, "charty"])
+  df <- NULL
+  df$chartx <- c(minX, minX, maxX, maxX, 0, topX, 0, topX)
+  df$charty <- c(0, topY, 0, topY, minY, minY, maxY, maxY)
+  df$strokeDash <- rep(c("2,8", "8,4"), times=2, each=2)
+  df$strokeWidth <- rep(c(2, 0.75), times=2, each=2)
+  df$grouping <- rep(1:4, each=2)
+  # the rows of this expanded we want are (2r-1, 2r) for every r in rowsNeedingLines
+  df <- data.frame(df)
+  rowsNotNeedingLines <- rep(!rangeControls$edited, each=2)   # TRUE if not edited
+  df[which(rowsNotNeedingLines), "strokeWidth"] <- 0
+  # axis lines: (minX, 0 to maxX, 0) (0, minY to 0, maxY) 
+  axisDF <- data.frame(chartx=c(minX, maxX, 0, 0), charty=c(0, 0, minY, maxY), strokeDash=NA, strokeWidth=2, grouping=c(5,5,6,6))
+  split_df(rbind(df, axisDF), quote(grouping), env=NULL)
+}
 
+setBaseDataStatics <- function(baseData) {
+  update_static('baseData', baseData); 
+  ranges <- list()
+  for (col in names(baseData)) ranges[[col]] <- range(baseData[[col]])
+  update_static("baseRanges", ranges)
+}
+
+setXYDataStatics <- function(workingData, xProp, yProp) {
+  update_static("maxX", gvStatics$baseRanges[[xProp]][2])
+  update_static("standardBin", gvStatics$maxX*0.1)
+  update_static("maxY", gvStatics$baseRanges[[yProp]][2])
+  update_static("popupYRange", gvStatics$maxY*1.2)
+  
   xMean <- xLowSD <- xHighSD <- NA
   if (gvSwitches$showXSDLines && nrow(workingData)>1) {
     xCol <- workingData[[xProp]]
@@ -642,37 +742,31 @@ setXYDataStatics <- function(workingData, xProp, yProp) {
   update_static("xHighSD", xHighSD)
 }
 
-range_lines <- function(rangeControls) {
-  # turn the dataset provided by range_controls into a df for showing lines on the 
-  # chart for edited min/max values.  we need up to four lines, corresponding to the
-  # rangeControls rows  minX, maxX, minY, maxY
-  rowsNeedingLines <- which(rangeControls$edited)
-  if (length(rowsNeedingLines)>0) {
-    topX <- gvStatics$maxX * 1.1
-    topY <- gvStatics$maxY * 1.1
-    # lines: (minX, 0 to minX, topY) (maxX, 0 to maxX, topY) (0, minY to topX, minY) (0, maxY to topX, maxY)
-    minX <- as.numeric(rangeControls[1, "chartx"])
-    maxX <- as.numeric(rangeControls[2, "chartx"])
-    minY <- as.numeric(rangeControls[3, "charty"])
-    maxY <- as.numeric(rangeControls[4, "charty"])
-    df <- NULL
-    df$chartx <- c(minX, minX, maxX, maxX, 0, topX, 0, topX)
-    df$charty <- c(0, topY, 0, topY, minY, minY, maxY, maxY)
-    df$strokeDash <- rep(c("2,8", "8,4"), times=2, each=2)
-    df$strokeWidth <- rep(c(2, 0.75), times=2, each=2)
-    df$grouping <- rep(1:4, each=2)
-    # the rows of this expanded we want are (2r-1, 2r) for every r in rowsNeedingLines
-    rowBools <- rep(rangeControls$edited, each=2)
-    df <- data.frame(df)
-    df <- df[which(rowBools),]
-    split_df(df, quote(grouping), env=NULL)
+axisSpec <- function(specs) {
+  # specs is a list where each named element has properties title and max, or null if
+  # the axis is to be suppressed.
+  # produce a data frame with columns scale, title, min, max
+  scales <- titles <- mins <- maxs <- NULL 
+  for (scaleName in names(specs)) {
+    spec <- specs[[scaleName]]
+    scales <- c(scales, scaleName)
+    title <- ""
+    min <- max <- NA
+    if (!is.null(spec)) {
+      title <- spec$title
+      min <- 0
+      max <- spec$max
+    }
+    titles <- c(titles, title)
+    mins <- c(mins, min)
+    maxs <- c(maxs, max)
   }
-  else customiseAndSplitDF(list(chartx=c(-1000,-1001), charty=c(-1000,-1001)), list(strokeDash="4,4", strokeWidth=1))
+  data.frame(scale=scales, title=titles, min=mins, max=maxs)
 }
 
 xSDLines <- function() {
   # produce two lines for 1 SD each side of the x mean
-  if (is.na(gvStatics$xMean)) customiseAndSplitDF(list(chartx=c(-1000,-1001), charty=c(-1000,-1001)), list(strokeDash="4,4", strokeWidth=1))
+  if (is.na(gvStatics$xMean)) customiseAndSplitDF(list(chartx=c(offChart,offChart+1), charty=c(offChart,offChart+1)), list(strokeDash="4,4", strokeWidth=1))
   else {
     topY <- gvStatics$maxY * 1.1
     df <- NULL
@@ -690,11 +784,11 @@ scatterPlotWithSweep <- function() {
   fullSize <- 80
   reducedSize <- 60
   minimalSize <- 40
-  fullOpacity <- 1.0
+  fullOpacity <- 0.8
   reducedOpacity <- 0.4
   zeroOpacity <- 0.0
   fullColour <- "black"
-  paleColour <- "#A0A0A0"  # or "gray", which is 808080
+  paleColour <- "#A0A0A0"  # "gray" is 808080
 
   # first, figure out which scenarios have edits, and which have ROI settings.
   # if there is an edit sweep, one or more base-data rows will have additional rows in the
@@ -713,7 +807,7 @@ scatterPlotWithSweep <- function() {
   # for each scenario with edits, figure out which rows are actually different from 
   # the base data in the two dimensions being displayed.  only these get marked as edited.
   # first, the default scenario - for which the edited dataset is included in full.
-  scatterDF <- isolate(gvDefault$unfilteredWorkingData)  # with edits applied
+  scatterDF <- isolate(gvDefault$unfilteredData)  # with edits applied
   xProp <- isolate(gvSwitches$xProp)
   yProp <- isolate(gvSwitches$yProp)
   baseData <- gvStatics$baseData
@@ -738,7 +832,7 @@ scatterPlotWithSweep <- function() {
   if (hasEditSweep) {
     sweepEdits <- isolate(gvSweep$workingDataEdits)
     sweepMasks <- isolate(gvSweep$workingDataMask)
-    sweepData <- isolate(gvSweep$unfilteredWorkingData)
+    sweepData <- isolate(gvSweep$unfilteredData)
     editRows <- as.numeric(names(sweepEdits[[1]]))
     scatterDF[editRows, "dotColour"] <- "green"
     editRowBase <- baseData[editRows,]  # a df with just those rows
@@ -766,51 +860,72 @@ scatterPlotWithSweep <- function() {
                                    ifelse(presentInSome, reducedOpacity, zeroOpacity))
   }
   scatterDF$keyField <- as.character(1:nrow(scatterDF))
+
+  prevXProp <- gvStatics$xPropLatest
+  prevYProp <- gvStatics$yPropLatest
+  xyChanged <- 
+    (!is.null(prevXProp) && (prevXProp != xProp)) ||
+    (!is.null(prevYProp) && (prevYProp != yProp))
+  if (xyChanged) {   # could be first time through
+    update_static("xPropHistory", if (is.null(prevXProp)) xProp else prevXProp)
+    update_static("yPropHistory", if (is.null(prevYProp)) yProp else prevYProp)
+    update_static("xPropLatest", xProp)     # for next time
+    update_static("yPropLatest", yProp)
+  }
+
+  scatterDF$chartx <- scatterDF[[xProp]]
+  scatterDF$charty <- scatterDF[[yProp]]
+  scatterDF$dragx <- paste0("x,workingDataEdits,", xProp, ",r_sweep_scatter")
+  scatterDF$dragy <- paste0("y,workingDataEdits,", yProp, ",r_sweep_scatter")
+  
   scatterDF
 }
 
-transitionDataFrame <- function(data) {
-  # return a data frame with columns "initialx", "initialy" in which values in the 
-  # prevXProp column of the supplied dataset are scaled so they will appear at the same
-  # relative positions on the newXProp scale; ditto for prevYProp.
-  # movingRows is the number of rows of default-scenario data; now at the end, not start. 
-  prevXProp <- gvStatics$xPropLatest
-  prevYProp <- gvStatics$yPropLatest
-  newXProp <- isolate(gvSwitches$xProp)
-  newYProp <- isolate(gvSwitches$yProp)
-  rescaled <- 
-    (!is.null(prevXProp) && (prevXProp != newXProp)) ||
-    (!is.null(prevYProp) && (prevYProp != newYProp))
-  # debugLog(paste(prevXProp, prevYProp, newXProp, newYProp, sep=" "))
-  debugLog(paste0("rescaled X or Y: ", rescaled))
-  if (rescaled) {   # could be first time through
-    update_static("xPropHistory", if (is.null(prevXProp)) newXProp else prevXProp)
-    update_static("yPropHistory", if (is.null(prevYProp)) newYProp else prevYProp)
-    update_static("xPropLatest", newXProp)     # for next time
-    update_static("yPropLatest", newYProp)
+tableData <- function(data, dataMask, xProp, yProp, editML, rangeML) {
+  # augment the data with header rows that represent the following metadata
+  #  xProp, yProp - a row "meta:xy" with numbers 1 for x, 2 for y, 3 for x&y
+  #  column ranges - rows "meta:minima", "meta:maxima"
+  # and the following columns
+  #  filtering - zero if normal, 1 if filtered out in the dataMask
+  #  editedColumns - empty string if none, JSON-parsable string array otherwise
 
-    movingRows <- totalRows <- nrow(data)   # used to draw a distinction, but no longer needed
-    df <- data[1:movingRows,]
-    prevX <- prevXProp
-    prevY <- prevYProp
-    xFactor <- max(df[[newXProp]])/max(df[[prevX]])
-    yFactor <- max(df[[newYProp]])/max(df[[prevY]])
-    df$initialx <- df[[prevX]]*xFactor
-    df$initialy <- df[[prevY]]*yFactor
-    if (movingRows < totalRows) {
-      appendedData <- data[(movingRows+1):totalRows,]
-      appendedData$initialx <- rep(-1, nrow(appendedData))
-      appendedData$initialy <- appendedData$initialx
-      df <- rbind(df, appendedData)
-    }
-  } else {
-    df <- data
-    df$initialx <- rep(-1, nrow(data))
-    df$initialy <- df$initialx
+  #   "mpg", "wt" becomes "mpg|wt"
+  packedNames <- function(names) { if (length(names)==0) "" else paste0(names, collapse='|') }
+  
+  dataColumns <- setdiff(names(data), c("originalrow"))
+
+  metaRows <- data[1:3,]   # take a copy to work on (hack: we assume data has at least 3 rows)
+  metaRows[1,] <- 0      # prepare row 1 for xy encoding
+  metaRows$originalrow <- c("meta:xy", "meta:minima", "meta:maxima")
+  metaRows$filtering <- 0
+  unfilteredRanges <- gvStatics$unfilteredRanges
+  lows <- rangeML[["1"]]  # may be NULL
+  highs <- rangeML[["2"]] # ditto
+  for (col in dataColumns) {
+    if (col==xProp) metaRows[1,col] <- 1
+    if (col==yProp) metaRows[1,col] <- metaRows[1,col] + 2
+
+    low <- lows[[col]]    # or NULL (including if rangeML is empty)
+    metaRows[2,col] <- if (is.null(low)) unfilteredRanges[[col]][1] else low
+    
+    high <- highs[[col]]
+    metaRows[3,col] <- if (is.null(high)) unfilteredRanges[[col]][2] else high
   }
-  df$chartx <- df[[newXProp]]
-  df$charty <- df[[newYProp]]
-  df
+  metaRows[2, "editedColumns"] <- packedNames(names(lows))
+  metaRows[3, "editedColumns"] <- packedNames(names(highs))
+
+  data$filtering <- 1
+  data[which(dataMask), "filtering"] <- 0
+  
+  data$editedColumns <- ""
+  for (rowName in names(editML)) {
+    data[as.integer(rowName), "editedColumns"] <- packedNames(names(editML[[rowName]]))
+  }
+  
+  # also turn the originalrow column into a bunch of strings, to fit with our metadata labels
+  data$originalrow <- as.character(data$originalrow)
+  
+  rbind(metaRows, data)
 }
 
 trackReactivesDuring <- function(func) {
@@ -843,18 +958,77 @@ discardChartObservers <- function(id) {
   }
 }
 
-# detach the observers and other reactives registered for the specified chart
-refreshChart <- function(id) {
+rebuildChart <- function(id) {
+  # detach the observers and other reactives registered for the specified chart
   discardChartObservers(id)
   discardChartReactives(id)
 
   # add the registered sources for this chart to those we're waiting for
   sources <- gvStatics[[paste0(id, "Sources")]]
-  # was: gvReactives$invalid_sources <- c(isolate(gvReactives$invalid_sources), sources)
-  gvStatics$invalid_sources <<- c(gvStatics$invalid_sources, sources)
-  if (length(gvStatics$invalid_sources)>0) gvReactives$waiting_for_sources <- TRUE
+  gvStatics$invalid_build_sources <<- unique(c(gvStatics$invalid_build_sources, sources))
+  if (length(gvStatics$invalid_build_sources)>0) gvReactives$waiting_for_build <- TRUE
 
-  update_static(paste0("refresh", id), TRUE)
+  update_static(paste0("rebuild", id), TRUE)
+}
+
+refreshChart <- function(id) {
+  # add the registered sources for this chart to those we're waiting for (these will be cleared
+  # from within sendOrQueueData)
+  sources <- gvStatics[[paste0(id, "Sources")]]
+  # was: gvReactives$invalid_sources <- c(isolate(gvReactives$invalid_sources), sources)
+  gvStatics$invalid_refresh_sources <<- unique(c(gvStatics$invalid_refresh_sources, sources))
+  if (length(gvStatics$invalid_refresh_sources)>0) gvStatics$waiting_for_refresh <<- TRUE
+  # update_static(paste0("refresh", id), TRUE)  no need
+}
+
+sendOrQueueData <- function(dataMessage, session) {
+  chartId <- dataMessage$chartId
+  dataName <- dataMessage$name
+  gvStatics$activeSession <<- session
+  synchedRefresh <- FALSE
+
+  chartQueue <- gvStatics$chartDataQueue[[chartId]]
+  if (is.null(chartQueue)) chartQueue <- list()
+  chartQueue[[dataName]] <- dataMessage$value
+  gvStatics$chartDataQueue[[chartId]] <<- chartQueue
+
+  if (gvStatics$waiting_for_refresh) {
+    synchedRefresh <- TRUE
+    # trim the data name to the name used for the source
+    sourceName <- substring(dataName, 3) # strip the "r_"
+    if (grepl("_tree", sourceName)) sourceName <- substr(sourceName, 1, nchar(sourceName)-5)
+    clearInvalidRefreshSource(sourceName)
+  }
+
+  if (!gvStatics$waiting_for_refresh) sendQueuedData(synchedRefresh)   # wasn't waiting, or just got cleared
+}
+
+sendQueuedData <- function(wasSynched) {
+  session <- gvStatics$activeSession
+  queue <- gvStatics$chartDataQueue
+  for (id in names(queue)) {
+    chartQueue <- queue[[id]]
+    duration <- 0
+    # every time we send something for plot1, check if we should also send axisSpec.
+    # and if it was a synched refresh, make the change happen slowly.
+    if (id == "plot1") {
+      if (wasSynched) duration <- 300
+      axisSpec <- isolate(gvDefault$axisSpec)
+      if (!identical(axisSpec, gvStatics$lastAxisSpec)) {
+        axSpecName = "r_default_axisSpec"
+        chartQueue[[axSpecName]] <- as.vega(axisSpec, axSpecName)  
+        gvStatics$lastAxisSpec <<- axisSpec          
+      }
+    }
+    
+    session$sendCustomMessage("ggvis_lively_data", list(      # use most recently supplied session
+      chartId = id,
+      duration = duration,
+      valueList = chartQueue
+    ))
+  }
+  gvStatics$chartDataQueue <<- list()     # clear the queue
+  gvStatics$activeSession <<- NULL
 }
 
 handleTriggerMessage <- function(msg) {
@@ -868,6 +1042,8 @@ handleTriggerMessage <- function(msg) {
     visitScenario(as.numeric(msg$args))
   } else if (msg$message == "resetSweep") {
     resetSweep()
+  } else if (msg$message == "suppressEdits") {
+    suppressEdits(msg$args[["bool"]])
   } else if (msg$message == "clearControl") {
     # clear one of the range-setting controls.
     # args are [ dataset, row, column ]
@@ -930,7 +1106,8 @@ handleTriggerMessage <- function(msg) {
         if (dataset=="workingDataRanges") {
           if (row>2) row <- row - 2
           otherRow <- as.character(3 - row)
-          # no doubt a neater way to do this, but...
+          # ensure that the min and max limits don't cross.
+          # no doubt there are neater ways to do this, but...
           for (i in 1:2) {
             column <- xycolumns[[i]]
             if (!identical(column, "-")) {
