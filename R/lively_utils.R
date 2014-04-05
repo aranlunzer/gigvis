@@ -1,4 +1,18 @@
-debugLog <- function(message) { if (lg_debug && !isTRUE(getOption("shiny.localServer"))) write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
+#debugLog <- function(message) { if (lg_debug && !isTRUE(getOption("shiny.localServer"))) write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
+# debugLog <- function(message) {
+#   t = system.time({if (lg_debug && !isTRUE(getOption("shiny.localServer"))) 
+#     write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) })["elapsed"] 
+#   write(paste0(t), file="lively_r_log", append=TRUE)
+# }
+#debugLog <- function(message) { if (lg_debug) write(paste0(Sys.time(),": ", message), file="", append=TRUE) }
+debugLog <- function(message) {
+  if (lg_debug && !isTRUE(getOption("shiny.localServer"))) {
+    if (is.null(debugLogFile)) debugLogFile <<- file("lively_r_log", "a", blocking=FALSE)
+    write(paste0(Sys.time(),": ", message), file=debugLogFile)
+  }
+}
+                          
+alwaysDebugLog <- function(message) { write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
 
 printReactLog <- function() {
   message(RJSONIO::toJSON(shiny:::.graphEnv$log, pretty=TRUE))
@@ -122,8 +136,12 @@ writeMemoryProfile <- function() {
 }
 
 provenanceValue <- function(...) {
+  # currently not used - and in any case not as useful as it was, since we no longer rebuild the entire
+  # visualisation and therefore could only put static values in here.  values in sharedProvenance are
+  # transferred to a mark's description by as.vega.mark()... and of course the description is only 
+  # sent with a new visualisation, not on subsequent updates of the datasets.
   parms <- list(...)
-  if (exists("gvFOO")) {   ## fix this up
+  if (FALSE) {
     # put the supplied extras on top of all the gvParm values
     parmList <- isolate(reactiveValuesToList(gvParms))
     for (name in names(parms)) parmList[[name]] <- parms[[name]]
@@ -313,11 +331,15 @@ smoothLine <- function(realdata, xProp, yProp, n, se) {
 }
 
 guessMList <- function(data, xProp, yProp) {
-  if (nrow(data)==0) return(list())
+  # if the user switches x or y is switched between columns that have the same range, 
+  # guessMList will have the same contents and the guessLine etc won't refresh themselves.
+  # so we now add the property names as a third - dummy - pseudo-row. 
+  if (nrow(data)==0) return(list(`3`=c(xProp, yProp)))
   xRange <- range(data[[xProp]])
   yMean <- mean(data[[yProp]]); 
   list(`1`=list(chartx=xRange[[1]], charty=yMean),
-       `2`=list(chartx=xRange[[2]], charty=yMean))
+       `2`=list(chartx=xRange[[2]], charty=yMean),
+       `3`=c(xProp, yProp))
 }
 
 guessLine <- function(guessML) {
@@ -395,7 +417,7 @@ clearInvalidBuildSource <- function(sourceName, clearRefresh) {
   sources <- gvStatics$invalid_build_sources
   gvStatics$invalid_build_sources <<- sourcesNow <- sources[sources!=sourceName]
   if (length(sourcesNow) == 0) gvReactives$waiting_for_build <- FALSE
-#  if (length(sources)>0) debugLog(paste0("remaining build sources: ", length(sourcesNow)))
+  #if (length(sources)>0) debugLog(paste0("remaining build sources: ", length(sourcesNow)))
   if (clearRefresh && gvStatics$waiting_for_refresh) {
     clearInvalidRefreshSource(sourceName)
     # if that cleared the last waiting source, send any queued data
@@ -446,8 +468,9 @@ update_sweepReactive <- function(name, value, log=FALSE) {
 suppressEdits <- function(bool) {
   # only act if there are some edits to suppress
   if (length(isolate(gvDefault$workingDataEdits))>0 || length(isolate(gvDefault$workingDataRanges))>0) {
-    refreshChart("plot1")
-    refreshChart("plot2")
+    # in fact no need to refresh everything
+    #refreshChart("plot1")
+    #refreshChart("plot2")
     gvSwitches$suppressEdits <- bool
   }
 }
@@ -627,28 +650,36 @@ merge_dataRanges <- function(default, sweep) {
   })
 }
 
-apply_dataRanges <- function(editedBase, rangeML) {
-  # editedBase is the base data after all relevant edits have been applied.  now apply
+mapDataRangePercent <- function(property, percents) {
+  range <- gvStatics$unfilteredRanges[[property]]
+  range[[1]] + percents*0.01*diff(range)
+}
+
+apply_dataRanges <- function(unfilteredData, rangeML) {
+  # unfilteredData is the base data after all relevant edits have been applied.  now apply
   # the ranges (if any) to produce a mask defining which rows of the edited base data
   # are included in the subset from which measures will be calculated.
-  # return the mask.  a rangeML is of the form:
+  # return the mask.  
+  # as of late march 2014, the rangeML is held in terms of percentage points on the current
+  # range of the dimension.
+  # a rangeML is of the form:
   # list(
-  #  "1"=list(wt=3)				  # row 1 is minima: mpg doesn't have one
-  #  "2"=list(mpg=20, wt=4)	# row 2 is maxima
+  #  "1"=list(wt=33)				  # row 1 is minima: mpg doesn't have one
+  #  "2"=list(mpg=25, wt=50)	# row 2 is maxima
   # )
   # no doubt there are more elegant ways to do this...
   lows <- rangeML[["1"]]
   highs <- rangeML[["2"]]
   if (length(lows)+length(highs)==0) {
-    rep(TRUE, nrow(editedBase)) 
+    rep(TRUE, nrow(unfilteredData)) 
   } else {
     columnNames <- unique(c(names(lows), names(highs)))
     columnMasks <- lapply(columnNames, function(col) {
       low <- lows[[col]]
-      if (is.null(low)) low <- NA
+      if (is.null(low)) low <- NA else low <- mapDataRangePercent(col, low)
       high <- highs[[col]]
-      if (is.null(high)) high <- NA
-      vals <- editedBase[[col]]
+      if (is.null(high)) high <- NA else high <- mapDataRangePercent(col, high)
+      vals <- unfilteredData[[col]]
       (is.na(low) | vals>=low) & (is.na(high) | vals<=high)   # NB: NULL/is.null won't work here
       # debugLog(paste0(mask, collapse=" "))
     })
@@ -656,19 +687,24 @@ apply_dataRanges <- function(editedBase, rangeML) {
   }
 }
 
-range_controls <- function(editedBase, rangeML) {
+range_controls <- function(workingData, rangeML) {
+  # workingData is the state of the data after applying edits and range constraints.
   # provide a four-row dataset with points for indicating, along the axes of the current chart, the  
   # positions of controls for adjusting min and max.
   rangeAndStatus <- function(property) {
-    low <- rangeML[["1"]][[property]]    # or NULL (including if rangeML is empty)
-    if (is.null(low)) low <- NA
-    high <- rangeML[["2"]][[property]]   # or NULL
-    if (is.null(high)) high <- NA
+    # if no data points remain, return a placeholder range that takes the controls off-chart 
+    if (nrow(workingData)==0) return(list(range=c(-100,-100), edited=c(FALSE,FALSE)))
+
+    lowPercent <- rangeML[["1"]][[property]]    # or NULL (including if rangeML is empty)
+    low <- if (is.null(lowPercent)) NA else mapDataRangePercent(property, lowPercent)
+    highPercent <- rangeML[["2"]][[property]]   # or NULL
+    high <- if (is.null(highPercent)) NA else mapDataRangePercent(property, highPercent)
     rangeSetting <- c(low, high)
-    # if no data points remain, put in a placeholder range that takes the marks off-chart 
-    defaultRange <- if (nrow(editedBase)==0) c(-100,-100) else gvStatics$unfilteredRanges[[property]]
     edited <- !is.na(rangeSetting)
-    rangeIndicator <- ifelse(edited, rangeSetting, defaultRange)
+    workingRange <- range(workingData[[property]])
+    # if there is a range setting, convert from percent to absolute using the full unedited range of the property.
+    # if not, use the actual min or max value of the property in the current working data.
+    rangeIndicator <- ifelse(edited, rangeSetting, workingRange)  # default range if not explicit
     list(range=rangeIndicator, edited=edited)
   }
   xProp <- isolate(gvSwitches$xProp)
@@ -678,8 +714,9 @@ range_controls <- function(editedBase, rangeML) {
   df <- NULL
   df$chartx <- c(xDF$range, 0, 0)
   df$charty <- c(0, 0, yDF$range)
-  dragx <- paste0("x,workingDataRanges,", xProp, ",r_default_rangeControls")
-  dragy <- paste0("y,workingDataRanges,", yProp, ",r_default_rangeControls")
+  # add "raw" suffix to tell the edit-handling code to convert them
+  dragx <- paste0("x:percent,workingDataRanges,", xProp, ",r_default_rangeControls")
+  dragy <- paste0("y:percent,workingDataRanges,", yProp, ",r_default_rangeControls")
   df$dragx <- c(dragx, dragx, "", "")
   df$dragy <- c("", "", dragy, dragy)
   df$edited <- c(xDF$edited, yDF$edited)
@@ -690,10 +727,11 @@ range_controls <- function(editedBase, rangeML) {
   data.frame(df)
 }
 
-range_lines <- function(rangeControls) {
+range_lines <- function(rangeControls, withAxisLines=FALSE) {
   # turn the dataset provided by range_controls into a df for showing lines on the 
-  # chart for edited min/max values.  we need two lines for the ranges on the x and y axes,
-  # plus up to four more corresponding to the rangeControls rows for  minX, maxX, minY, maxY
+  # chart for edited min/max values.  we need two lines for the ranges on the x and y axes (for 
+  # default scenario only), plus up to four more corresponding to the rangeControls rows 
+  # for  minX, maxX, minY, maxY
   topX <- gvStatics$maxX * 1.1
   topY <- gvStatics$maxY * 1.1
   # limit lines: (minX, 0 to minX, topY) (maxX, 0 to maxX, topY) (0, minY to topX, minY) (0, maxY to topX, maxY)
@@ -711,9 +749,12 @@ range_lines <- function(rangeControls) {
   df <- data.frame(df)
   rowsNotNeedingLines <- rep(!rangeControls$edited, each=2)   # TRUE if not edited
   df[which(rowsNotNeedingLines), "strokeWidth"] <- 0
-  # axis lines: (minX, 0 to maxX, 0) (0, minY to 0, maxY) 
-  axisDF <- data.frame(chartx=c(minX, maxX, 0, 0), charty=c(0, 0, minY, maxY), strokeDash=NA, strokeWidth=2, grouping=c(5,5,6,6))
-  split_df(rbind(df, axisDF), quote(grouping), env=NULL)
+  # axis lines: (minX, 0 to maxX, 0) (0, minY to 0, maxY)
+  if (withAxisLines) {
+    axisDF <- data.frame(chartx=c(minX, maxX, 0, 0), charty=c(0, 0, minY, maxY), strokeDash=NA, strokeWidth=2, grouping=c(5,5,6,6))
+    df <- rbind(df, axisDF)
+  }
+  split_df(df, quote(grouping), env=NULL)
 }
 
 setBaseDataStatics <- function(baseData) {
@@ -723,14 +764,15 @@ setBaseDataStatics <- function(baseData) {
   update_static("baseRanges", ranges)
 }
 
-setXYDataStatics <- function(workingData, xProp, yProp) {
-  update_static("maxX", gvStatics$baseRanges[[xProp]][2])
+setXYDataStatics <- function(workingData, xProp, yProp, wantSDs) {
+  # called often these days - but pretty lightweight (apart from all the logging in update_static)
+  update_static("maxX", gvStatics$baseRanges[[xProp]][[2]])
   update_static("standardBin", gvStatics$maxX*0.1)
-  update_static("maxY", gvStatics$baseRanges[[yProp]][2])
+  update_static("maxY", gvStatics$baseRanges[[yProp]][[2]])
   update_static("popupYRange", gvStatics$maxY*1.2)
   
   xMean <- xLowSD <- xHighSD <- NA
-  if (gvSwitches$showXSDLines && nrow(workingData)>1) {
+  if (wantSDs && nrow(workingData)>1) {
     xCol <- workingData[[xProp]]
     xSD <- sd(xCol)
     xMean <- mean(xCol)
@@ -745,23 +787,29 @@ setXYDataStatics <- function(workingData, xProp, yProp) {
 axisSpec <- function(specs) {
   # specs is a list where each named element has properties title and max, or null if
   # the axis is to be suppressed.
-  # produce a data frame with columns scale, title, min, max
-  scales <- titles <- mins <- maxs <- NULL 
+  # produce a data frame with columns scale, title, min (currently always 0), max (supplied)
+  scales <- titles <- mins <- maxs <- dataMins <- dataMaxs <- NULL 
   for (scaleName in names(specs)) {
     spec <- specs[[scaleName]]
     scales <- c(scales, scaleName)
     title <- ""
-    min <- max <- NA
+    min <- max <- dataMin <- dataMax <- NA
     if (!is.null(spec)) {
       title <- spec$title
       min <- 0
       max <- spec$max
+      if (!is.null(spec$dataRange)) {
+        dataMin <- spec$dataRange[[1]]
+        dataMax <- spec$dataRange[[2]]
+      }
     }
     titles <- c(titles, title)
     mins <- c(mins, min)
     maxs <- c(maxs, max)
+    dataMins <- c(dataMins, dataMin)
+    dataMaxs <- c(dataMaxs, dataMax)
   }
-  data.frame(scale=scales, title=titles, min=mins, max=maxs)
+  data.frame(scale=scales, title=titles, min=mins, max=maxs, dataMin=dataMins, dataMax=dataMaxs)
 }
 
 xSDLines <- function() {
@@ -906,10 +954,12 @@ tableData <- function(data, dataMask, xProp, yProp, editML, rangeML) {
     if (col==yProp) metaRows[1,col] <- metaRows[1,col] + 2
 
     low <- lows[[col]]    # or NULL (including if rangeML is empty)
-    metaRows[2,col] <- if (is.null(low)) unfilteredRanges[[col]][1] else low
+    #metaRows[2,col] <- if (is.null(low)) unfilteredRanges[[col]][1] else low
+    metaRows[2,col] <- if (is.null(low)) 0 else low
     
     high <- highs[[col]]
-    metaRows[3,col] <- if (is.null(high)) unfilteredRanges[[col]][2] else high
+    #metaRows[3,col] <- if (is.null(high)) unfilteredRanges[[col]][2] else high
+    metaRows[3,col] <- if (is.null(high)) 100 else high
   }
   metaRows[2, "editedColumns"] <- packedNames(names(lows))
   metaRows[3, "editedColumns"] <- packedNames(names(highs))
@@ -1031,6 +1081,21 @@ sendQueuedData <- function(wasSynched) {
   gvStatics$activeSession <<- NULL
 }
 
+startQuiescencePoll <- function() { gvReactives$quiescent <- FALSE }
+
+capturedPlotState <- function() {
+  state <- isolate(reactiveValuesToList(gvSwitches))
+  state <- state[setdiff(names(state), gvStatics$nonPlotStateSwitches)]
+  for (n in gvStatics$plotStateSettings) state[[n]] <- isolate(gvDefault[[n]])
+  state
+}
+
+reapplyPlotState <- function(state) {
+  debugLog(capture.output(print(state)))
+  for (n in gvStatics$plotStateSettings) gvDefault[[n]] <- state[[n]]
+  for (n in setdiff(names(state), gvStatics$plotStateSettings)) gvSwitches[[n]] <- state[[n]]
+}
+
 handleTriggerMessage <- function(msg) {
   debugLog(paste0("message from browser: ", msg$message))
   if (msg$message=="newXYProps") {
@@ -1043,7 +1108,12 @@ handleTriggerMessage <- function(msg) {
   } else if (msg$message == "resetSweep") {
     resetSweep()
   } else if (msg$message == "suppressEdits") {
-    suppressEdits(msg$args[["bool"]])
+    # only act if there are some edits to suppress
+    if (length(isolate(gvDefault$workingDataEdits))>0 || length(isolate(gvDefault$workingDataRanges))>0) {
+      refreshChart("plot1")
+      refreshChart("plot2")
+      gvSwitches$suppressEdits <- msg$args[["bool"]]
+    }
   } else if (msg$message == "clearControl") {
     # clear one of the range-setting controls.
     # args are [ dataset, row, column ]
@@ -1068,7 +1138,7 @@ handleTriggerMessage <- function(msg) {
   } else if (msg$message == "edit") {
     # now always a single command (rather than potentially x/y commands bundled into one message).
     # the command has a "type" (data/parameter) and a "target"
-    #   for data, target is { dataset, row, xycolumns } - one of xycolumns can be NULL
+    #   for data, target is { dataset, row, xycolumns } - one of xycolumns can be "-"
     #   for parameter, target is a stringy parameter name
     # then a scenarios collection: [0] for default, [n] (1 to 10) for an individual 
     #   sweep scen (which must already exist), or 1..n to set up a new sweep
@@ -1082,7 +1152,11 @@ handleTriggerMessage <- function(msg) {
     numEditScenarios <- length(scenarios)
     values <- args$values            # collection of strings, or of two-place collections
     if (type == "data") {
-      dataset <- target$dataset
+      datasetArg <- target$dataset   # may include a suffix (was used for workingDataRanges:raw, but that's now handled on JS side)
+      argSplit <- unlist(strsplit(datasetArg, ":"))
+      if (length(argSplit) == 1) { dataset <- datasetArg; suffix <- NULL }
+      else { dataset <- argSplit[[1]]; suffix <- argSplit[[2]] }
+
       row <- target$row
       xycolumns <- target$xycolumns
       if (identical(scenarios, 0)) {
@@ -1102,20 +1176,26 @@ handleTriggerMessage <- function(msg) {
         mList <- if (scen==0) editML else editMLSweep[[scen]]
         xyvalues <- as.numeric(values[[si]])
         
-        # minor hack: for workingDataRanges, map edits to rows 3 and 4 onto ML rows 1 & 2; also constrain low<=high relationship, if the other one has already been defined.
+        # minor hack: for workingDataRanges, map edits to rows 3 and 4 onto ML rows 1 & 2
         if (dataset=="workingDataRanges") {
           if (row>2) row <- row - 2
           otherRow <- as.character(3 - row)
           # ensure that the min and max limits don't cross.
           # no doubt there are neater ways to do this, but...
-          for (i in 1:2) {
+          for (i in 1:2) {  # adjustment will be expressed as on x or on y, but not both
             column <- xycolumns[[i]]
             if (!identical(column, "-")) {
+#               if (identical(suffix, "raw")) {   ## conversion to percent is now handled in JS
+#                 rawValue <- xyvalues[[i]]
+#                 dimensionRange <- gvStatics$unfilteredRanges[[column]]
+#                 value <- round((rawValue-dimensionRange[[1]])/diff(dimensionRange)*100) # as integer %
+#               } 
               value <- xyvalues[[i]]
               otherLimit <- mList[[otherRow]][[column]]
               if (!is.null(otherLimit)) {
-                xyvalues[[i]] <- if (row==1) min(value, otherLimit) else max(value, otherLimit)
+                value <- if (row==1) min(value, otherLimit) else max(value, otherLimit)
               }
+              xyvalues[[i]] <- min(max(value, 0), 100)
             }
           }
         }
@@ -1152,6 +1232,8 @@ handleTriggerMessage <- function(msg) {
         update_sweepReactive(parm, sweepList)
       }
     }
+  } else if (msg$message == "revisitPlotState") {
+    reapplyPlotState(msg$args[["plotState"]])
   }
 }
 

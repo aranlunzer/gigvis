@@ -149,7 +149,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
     // then an inner-table row for each element of the data
     var rows = tableRoot.select("tbody.mainTable").selectAll("tr").data(rowItems);
     rows.enter()
-    .append("tr") //.sort(sortValueDescending);
+    .append("tr"); //.sort(sortValueDescending);
     
     rows
     .each(function(d) { d._svg = this });
@@ -187,12 +187,16 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
           var rowItem = rowItems[j];
           return String(rowItem.datum.data[column]);
           })
+/*
     .attr("style", function(d, i, j) {
           var editedColStr = rowItems[j].datum.data["editedColumns"];
-          var editedCols = (editedColStr == "") ? [] : editedColStr.split("|");
-          var filtered = rowItems[j].datum.data["filtering"] != 0
-          return "opacity: "+ (filtered ? "0.3" : "1") + "; color: " + (editedCols.indexOf(d[1]) == -1 ? "black" : "red") 
+          var color = "black";
+          if (editedColStr != "" && editedColStr.split("|").indexOf(d[1]) != -1) color = "red";
+          var filtered = rowItems[j].datum.data["filtering"] != 0;
+          return "opacity: "+ (filtered ? "0.3" : "1") + "; color: " + color;
           })
+*/
+
 }   // end of drawTable
 
 (function() {

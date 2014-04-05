@@ -106,7 +106,7 @@ as.vega.mark <- function(mark) {
   properties <- as.vega(props)
   properties$ggvis <- list()
   if (mark$type == "symbol" || mark$type == "rect") {
-    # as.vega.ggvis_props() defaults to attaching properties to "update"
+    # as.vega.ggvis_props() defaults to attaching "update" to all properties
     properties$highlight <- as.vega(props(fill:="orange"))$update
     properties$scenarioHighlight <- as.vega(props(fillOpacity:=0.75))$update
   }

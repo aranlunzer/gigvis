@@ -229,11 +229,11 @@ lively_observe_data <- function(r_spec, id, session) {
           data_reactive <- get(data_name, data_table)
 #debugLog(paste0("installing observer on: ", data_name, " currently ", attr(data_reactive, "observable")$.label)) 
           firstTime <- TRUE
-          version <- gvChartVersions[[id]]
+          #version <- gvChartVersions[[id]]
 
           obs <- observe({
             # watch for changes in the data reactive
-            debugLog(paste0("get: ", data_name, " for ", as.character(id), " version ", as.character(version))) 
+            debugLog(paste0("get: ", data_name, " for ", as.character(id))) 
             ok <- TRUE
             tryCatch({
               data_content <- data_reactive()  # make sure we look, whether first time or not

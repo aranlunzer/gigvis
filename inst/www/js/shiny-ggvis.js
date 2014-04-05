@@ -9,10 +9,6 @@ oneTimeInitShinyGgvis = function() {
 
   var debug = true;
 
-  var livelyRenderedCharts = {};
-  var livelyDataTriggers = {};
-  var livelyEditRange = null;      // last used edit range, suitable for creating a sweep
-
   var _ = window.lodash;
 
   // ael: a wrapper onto onInputChange, that adds a millisecond-level time field to
@@ -21,27 +17,72 @@ oneTimeInitShinyGgvis = function() {
   Shiny.timestampedOnInputChange = function(name, messageObj) {
     Shiny.onInputChange(name, JSON.stringify($.extend(messageObj, { timestamp: new Date().getTime() })));
   }
-  Shiny.chartNamed = function(chartName) { return $(".ggvis-output#"+chartName).data("ggvisChart") }
-  Shiny.startJogOnChartNamed = function(chartName) {
-    Shiny.startJog(Shiny.chartNamed(chartName));
+  Shiny.chartNamed = function(chartName) {
+    return $(".ggvis-output#"+chartName).data("ggvisChart")
   }
-  Shiny.endJogOnChartNamed = function(chartName) {
-    Shiny.endJog(Shiny.chartNamed(chartName));
+  Shiny.historyManager = function() {
+    return lively.morphic.World.current().get("LivelyRHistory")
   }
-  Shiny.setUpSweepOnChartNamed = function(chartName) {
-    Shiny.setUpSweep(Shiny.chartNamed(chartName));
+  //Shiny.livelyDataTriggers = {};  // deprecated
+  Shiny.livelyMessageQueue = [];
+
+  Shiny.sendMessageWhenReady = function(messageFn, completionFn, queueIfNotReady) {
+    var queue = Shiny.livelyMessageQueue;
+    if (queue.length && !queueIfNotReady) return;   // throw away the message
+
+    queue.push({ messageFn: messageFn, completionFn: completionFn });
+    if (queue.length == 1) queue[0].messageFn();
   }
-  Shiny.setUpParameterRangeOnChartNamed = function(chartName, parameter, values, triggerName, trackerFn) {
-    Shiny.setUpParameterRange(Shiny.chartNamed(chartName), parameter, values, triggerName, trackerFn)
-  }
-  Shiny.resetSweep = function() {
-    Shiny.numScenarios = Shiny.visitScenario = 0;
-    Shiny.timestampedOnInputChange("trigger", { message: "resetSweep" });
-  }
-  Shiny.suppressEdits = function(bool) {
-    Shiny.timestampedOnInputChange("trigger", { message: "suppressEdits", args: { bool: bool } });
-  }
+
+  Shiny.addCustomMessageHandler("ggvis_lively_quiescent", function(message) {
+    Shiny.latestPlotState = message.plotState;
+    var queue = Shiny.livelyMessageQueue;
+    if (!queue.length) { console.log("Unexpected quiescence message"); return }
+    
+    var completionFn = queue.shift().completionFn;
+    if (completionFn) {
+      console.log("found completion function");
+      completionFn();
+    }
+
+    if (queue.length) queue[0].messageFn();
+  });
   
+  Shiny.sendReactiveValue = function(varName, value) {
+    Shiny.sendMessageWhenReady(function() { Shiny.onInputChange(varName, value) }, null, true );
+  }
+
+  Shiny.sendCommandMessage = function(message, args, triggerFn, channel) {
+    var ch = channel || "trigger";  // allow override of default channel
+    Shiny.sendMessageWhenReady(function() { Shiny.timestampedOnInputChange(ch, { message: message, args: args }) }, triggerFn, true);
+  }
+
+  Shiny.sendEditMessage = function(dataset, xycolumns, row, scenarios, chartPoints, triggerFn, channel) {
+    // edits that arise from dragging chart points
+    var args = {};
+    args.type = "data";
+    args.target = { dataset: dataset, row: row, xycolumns: xycolumns };
+    args.scenarios = scenarios;
+    args.values = chartPoints.map(function(cp) {
+      var xy = ["-1000", "-1000"];
+      if (cp.x) xy[[0]] = cp.x.toFixed(2);
+      if (cp.y) xy[[1]] = cp.y.toFixed(2);
+      return xy;
+    });
+    var ch = channel || "trigger";  // allow override of default channel
+    Shiny.sendMessageWhenReady(function() { Shiny.timestampedOnInputChange(ch, { message: "edit", args: args }) }, triggerFn, true);
+  }
+
+  Shiny.sendParameterMessage = function(parameter, scenarios, values, triggerFn, channel) {
+    var args = { type: "parameter", target: parameter, scenarios: scenarios, values: values };
+    var ch = channel || "trigger";  // allow override of default channel
+    Shiny.sendMessageWhenReady(function() { Shiny.timestampedOnInputChange(ch, { message: "edit", args: args }) }, triggerFn, true);
+  }
+
+  Shiny.suppressEdits = function(bool) {
+    Shiny.sendCommandMessage("suppressEdits", { bool: bool });
+  }
+
   var ggvisOutputBinding = new Shiny.OutputBinding();
   $.extend(ggvisOutputBinding, {
     find: function(scope) {
@@ -144,12 +185,12 @@ oneTimeInitShinyGgvis = function() {
   // Receive a vega spec and parse it
   Shiny.addCustomMessageHandler("ggvis_lively_vega_spec", function(message) {
     var chartId = message.chartId;
-    var version = message.version;
+    // var version = message.version;
     var spec = message.spec;
     var renderer = message.renderer;
-    console.log("ggvis_lively_vega_spec", chartId, version, spec);
+    console.log("ggvis_lively_vega_spec", chartId, spec);
 
-    buildLivelyChart(spec, chartId, version, renderer);
+    buildLivelyChart(spec, chartId, renderer);
     $world.setHandStyle(null);
   });
 
@@ -159,9 +200,8 @@ oneTimeInitShinyGgvis = function() {
     // we've also introduced "r_default_axisSpec", a pseudo-dataset used to set axis properties.
     var chartId = message.chartId;
     // Check that the data spec belongs to a chart that's already rendered.
-    var existingChartDetails = livelyRenderedCharts[chartId];
-    if (existingChartDetails) {
-      var chart = existingChartDetails.chart;
+    var chart = Shiny.chartNamed(chartId);
+    if (chart) {
       var valueList = message.valueList;   // a list (i.e., object) mapping dataName -> value
       // each value associated with a dataName is expected to be a one-element array containing
       //   { name: n, values: valueArray }  (see as.vega.data.frame), or
@@ -186,7 +226,7 @@ oneTimeInitShinyGgvis = function() {
           var formattedData = vg.data.read(values, dataSpec.format);
           if (name=="r_default_axisSpec") {
             // special dataset for (re)defining the axes and scales
-            axesChanged = true;
+            axesChanged = true;      // NB: in fact we might just be redefining dataMin and dataMax
             for (var i=0; i<formattedData.length; i++) {
               var axisSpec = formattedData[i];
               var scaleName = axisSpec.scale;
@@ -207,7 +247,10 @@ oneTimeInitShinyGgvis = function() {
                 var newMax = axisSpec.max;
                 scaleDef.domain[1] = axisSpec.max;
               }
+              if (axisSpec.dataMin) Shiny[[axisSpec.scale+"Min"]] = axisSpec.dataMin;
+              if (axisSpec.dataMax) Shiny[[axisSpec.scale+"Max"]] = axisSpec.dataMax;
             }
+          //console.log(Shiny.xMin, Shiny.xMax, Shiny.yMin, Shiny.yMax);
           } else {
             var subData = {};
             subData[name] = formattedData;
@@ -216,9 +259,16 @@ oneTimeInitShinyGgvis = function() {
             needsSort = subData[name].length>0 && (subData[name][0].scenario!==undefined);
           }
         }
-        var trigger = livelyDataTriggers[name];
-        if (trigger) { delete livelyDataTriggers[name]; setTimeout(trigger, message.duration) }; 
-      })
+        /*
+        var trigger = Shiny.livelyDataTriggers[name];
+        if (trigger) {
+          //console.log("TRIGGER: "+message.duration+" "+name);
+          delete Shiny.livelyDataTriggers[name];
+          setTimeout(trigger, message.duration);
+        };
+        */
+      });  // end of forEach(name)
+
       $world.setHandStyle(null);
 
       if (axesChanged) {
@@ -232,7 +282,7 @@ oneTimeInitShinyGgvis = function() {
     }
   });
   
-  function buildLivelyChart(spec, chartId, version, renderer) {
+  function buildLivelyChart(spec, chartId, renderer) {
     // NB: still using the old way of building charts.  ggvis has some new stuff.
     // NB: this is asynchronous.  On return, the chart won't yet have been built.
 
@@ -255,7 +305,6 @@ oneTimeInitShinyGgvis = function() {
       viewDivObj.data("ggvis-chart", chart);   // a convenient way to access the View object
       viewDivObj.attr("tabindex",-1);       // allow the element to get focus
       chart.viewDivObj = viewDivObj;        // a convenient way to get back to the JS element
-      livelyRenderedCharts[chartId] = { version: version, chart: chart };
 
       chart.update();
       
@@ -328,244 +377,17 @@ oneTimeInitShinyGgvis = function() {
         });
         return matches;
       }
-      
+
       function parseDragSpec(dragSpec) {
-        // a dragSpec has comma-separated components  scale, dataset, column[, triggerName]
+        // a dragSpec has comma-separated components  scale (which can be "identity" for a cell drag, or have a suffix, eg. "x:percent"), dataset, column[, triggerName]
         if (!dragSpec) return null;
 
-        s = dragSpec.split(",");
+        var s = dragSpec.split(",");
         var spec = { scale: s[0], dataset: s[1], column: s[2] };
         if (s.length>3) spec.triggerName = s[3];
         return spec;
       }
-      
-      function initJogSpec(jogSpec, xSpec, ySpec) {
-        jogSpec.xScale = xSpec && xSpec.scale;
-        jogSpec.yScale = ySpec && ySpec.scale;
-        jogSpec.xColumn = xSpec ? xSpec.column : "-";
-        jogSpec.yColumn = ySpec ? ySpec.column : "-";
-        jogSpec.dataset = (xSpec && xSpec.dataset) || (ySpec && ySpec.dataset);
-        jogSpec.triggerName = (xSpec && xSpec.triggerName) || (ySpec && ySpec.triggerName);
-      }
-
-      function toChartCoords(evtPt, absolute, targetChart, xScale, yScale) {
-        // based on the x and y drag specs of the specified element, turn the 
-        // event point into an abstract point with coords in x and/or y.
-        // if absolute is true, assume we need to subtract the chart origin.
-        var chartTop = 0, chartLeft = 0;
-        if (absolute) {
-          var chartRect = $(targetChart._el).bounds();
-          var padding = targetChart.padding();
-          chartTop = chartRect.top + padding.top;
-          chartLeft = chartRect.left + padding.left;
-        }
-        var chartGroup = targetChart.model().scene().items[0];
-        var xVal, yVal;
-        if (xScale) xVal = chartGroup.scales[xScale].invert(evtPt.x - chartLeft);
-        if (yScale) yVal = chartGroup.scales[yScale].invert(evtPt.y - chartTop);
-        return pt(xVal, yVal);
-      }
-      
-      function setUpParameterRange(chart, parameter, unfilteredValues, triggerName, trackerFn) {
-        // sent by a slider, at the end of a drag
-        if (unfilteredValues.length < 2) return;
-
-        var start = Number(unfilteredValues.first());
-        var end = Number(unfilteredValues.last());
-        var low = Math.min(start, end);
-        var high = Math.max(start, end);
-        var seen = [];
-        var validPositions = unfilteredValues.filter(function(v) {
-          if (seen.indexOf(v) !== -1) return false;
-          seen.push(v);
-          return Number(v) >= low && Number(v) <= high;
-        });
-        var values = validPositions;
-        var jogSpec = chart.nextJogSpec = {};
-        jogSpec.parameter = parameter;
-        jogSpec.triggerName = triggerName;
-        jogSpec.restoreValue = values.last();
-        jogSpec.valueRange = [];
-        jogSpec.scenarios = [];
-        var numPositions = values.length;
-        for (var i=0; i<numPositions; i++) {
-          jogSpec.valueRange.push(values[i]);
-          jogSpec.scenarios.push(i+1);
-        }
-        jogSpec.direction = -1;
-        jogSpec.maxIndex = numPositions - 1;
-        jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
-        jogSpec.bounce = true;
-        
-        jogSpec.trackerFn = trackerFn;
-      }
-      Shiny.setUpParameterRange = setUpParameterRange;
-      
-      function setUpEditRange(chart, item) {
-        // set up a suitable range for a point that has been clicked, rather than dragged.
-        // will be invoked even if the item isn't one for which an edit is valid
-        if (!(item.dragx || item.dragy)) return;  // don't even delete old edit range
-
-        var jogSpec = chart.nextJogSpec = {};
-
-        // figure out x and/or y of the item, and hence the range through which it should be varied
-        var xSpec = parseDragSpec(item.dragx);   // may be null
-        var ySpec = parseDragSpec(item.dragy);   // ditto
-        initJogSpec(jogSpec, xSpec, ySpec);
-        
-        var dataset = jogSpec.dataset;
-        var itemPos = pt(item.x, item.y);        // NB: pixels, relative to chart.
-        jogSpec.restorePoint = toChartCoords(itemPos, false, chart, jogSpec.xScale, jogSpec.yScale);
-        jogSpec.pointRange = [];
-        jogSpec.scenarios = [];
-        if (xSpec && ySpec) {
-          // visit 8 compass directions, in a circle of diameter 0.1*scale in each dimension.
-          var numPositions = 8;  // numbered 0 to 7
-          var chartRect = $(chart._el).bounds();
-          var ratio = 0.15;
-          var xRadius = chartRect.width() * ratio / 2;
-          var yRadius = chartRect.height() * ratio / 2;
-          for (var segment=0; segment<8; segment++) {
-            var angle = segment * Math.PI / 4;
-            var jogPoint = pt(itemPos.x + xRadius*Math.sin(angle), itemPos.y - yRadius*Math.cos(angle)); 
-            var jogChartPoint = toChartCoords(jogPoint, false, chart, jogSpec.xScale, jogSpec.yScale);
-            jogSpec.pointRange.push(jogChartPoint);
-            jogSpec.scenarios.push(segment+1);
-          }
-          jogSpec.index = 0;
-          jogSpec.direction = 1;
-          jogSpec.maxIndex = numPositions - 1;
-          jogSpec.bounce = false;
-        } else {
-          var numPositions = 10;
-          var startPoint = jogSpec.restorePoint;
-          var isXRange = !!startPoint.x;
-          var startVal = 0;
-          var stopVal = isXRange ? startPoint.x : startPoint.y;
-          jogSpec.pointRange = [];
-          jogSpec.scenarios = [];
-          for (var step=0; step<numPositions; step++) {
-            var val = startVal+step*(stopVal-startVal)/(numPositions-1);
-            jogSpec.pointRange.push(isXRange ? pt(val, -1000) : pt(-1000, val));
-            jogSpec.scenarios.push(step+1);
-          }
-          jogSpec.direction = -1;
-          jogSpec.maxIndex = numPositions - 1;
-          jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
-          jogSpec.bounce = true;
-        }
-        jogSpec.xSpec = xSpec;
-        jogSpec.ySpec = ySpec;
-        jogSpec.row = dataRowOrRole(item);
-      }
-
-      function startJog(chart) {
-        if (!chart.nextJogSpec) return;
-        if (debug) console.log("start jog");
-        chart.jogSpec = chart.nextJogSpec;
-        jogStep(chart);
-        // make sure the view has keyboard focus, to allow Escape to stop the jog
-        chart.viewDivObj.focus();
-      }
-      Shiny.startJog = startJog;
-
-      function jogStep(chart) {
-        if (!chart.jogSpec) return;
-        // console.log("jogStep");
-        var jogSpec = chart.jogSpec;
-        if (jogSpec.dataset) {
-          var jogPoint = jogSpec.pointRange[jogSpec.index];
-          sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogPoint ], "trigger2");
-        } else {
-          var jogValue = jogSpec.valueRange[jogSpec.index];
-          sendParameterMessage(jogSpec.parameter, [ 0 ], [ jogValue ], "trigger2");
-        }
-        // step to next jog position, taking account of the "bounce" setting
-        var dir = jogSpec.direction;
-        var next = jogSpec.index + dir;  // tentative
-        if (jogSpec.bounce) {
-          if (next < 0) {     // bounce off bottom limit
-            next = 1;
-            dir = 1;
-          } else if (next > jogSpec.maxIndex) {
-            next = jogSpec.maxIndex - 1;  // bounce off top limit
-            dir = -1;
-          }
-        } else {
-          next = next % (jogSpec.maxIndex+1);
-        }
-        jogSpec.index = next;
-        jogSpec.direction = dir;
-        livelyDataTriggers[jogSpec.triggerName] = function() { jogStep(chart) };
-      }
-
-      function endJog(chart) {
-        if (debug) console.log("ending jog");
-        var jogSpec = chart.jogSpec;
-        if (jogSpec) {
-          delete livelyDataTriggers[jogSpec.triggerName];
-          if (jogSpec.dataset) {    // it's from a chart-point drag, not a slider
-            sendEditMessage(jogSpec.dataset, [jogSpec.xColumn, jogSpec.yColumn], jogSpec.row, [ 0 ], [ jogSpec.restorePoint ], "trigger2");
-          } else {
-            sendParameterMessage(jogSpec.parameter, [ 0 ], jogSpec.restoreValue, "trigger2");
-          }
-          delete chart.jogSpec;
-        }
-      }
-      Shiny.endJog = endJog;
-
-      function setUpSweep(chart) {
-        if (!chart.nextJogSpec) return;
-
-        if (debug) console.log("set up sweep");
-        var range = chart.nextJogSpec;
-        // the spec is either for edits on a draggable variable, or 
-        if (range.dataset) {
-          sendEditMessage(range.dataset, [range.xColumn, range.yColumn], range.row, range.scenarios, range.pointRange);
-          Shiny.numScenarios = range.pointRange.length;
-          Shiny.sweepTracker = null;
-        } else {
-          Shiny.sweepValueRange = range.valueRange;
-          Shiny.sweepTracker = range.trackerFn;
-          Shiny.numScenarios = range.valueRange.length;
-          sendParameterMessage(range.parameter, range.scenarios, range.valueRange);
-        }
-        Shiny.visitScenario = 0;
-      }
-      Shiny.setUpSweep = setUpSweep;
-
-      function visitNextScenario(dir) {
-        if (Shiny.numScenarios> 0) {
-          var vs = Shiny.visitScenario % Shiny.numScenarios + dir;
-          if (vs < 1) vs += Shiny.numScenarios;
-          Shiny.visitScenario = vs;
-          // console.log("new scenario: ", vs);
-          if (Shiny.sweepTracker) Shiny.sweepTracker(Shiny.sweepValueRange[vs-1]);
-          window.Shiny.timestampedOnInputChange("trigger", { message: "visitScenario", args: vs });
-        }
-      }
-      Shiny.visitNextScenario = visitNextScenario;
-
-      function sendEditMessage(dataset, xycolumns, row, scenarios, chartPoints, channel) {
-        var args = {};
-        args.type = "data";
-        args.target = { dataset: dataset, row: row, xycolumns: xycolumns };
-        args.scenarios = scenarios;
-        args.values = chartPoints.map(function(cp) {
-          var xy = ["-1000", "-1000"];
-          if (cp.x) xy[[0]] = cp.x.toFixed(2);
-          if (cp.y) xy[[1]] = cp.y.toFixed(2);
-          return xy;
-        });
-        var ch = channel || "trigger";  // allow override of default channel
-        window.Shiny.timestampedOnInputChange(ch, { message: "edit", args: args });
-      }
-
-      function sendParameterMessage(parameter, scenarios, values, channel) {
-        var args = { type: "parameter", target: parameter, scenarios: scenarios, values: values };
-        var ch = channel || "trigger";  // allow override of default channel
-        window.Shiny.timestampedOnInputChange(ch, { message: "edit", args: args });
-      }
+      Shiny.parseDragSpec = parseDragSpec;
 
       //viewDivObj.on("blur", function() { if (debug) console.log("div blur") });
       //viewDivObj.on("focus", function() { if (debug) console.log("div focus") });
@@ -577,13 +399,13 @@ oneTimeInitShinyGgvis = function() {
       viewDivObj.on("keydown", (function(evt) {
         // console.log(evt.keyCode);
         if (evt.keyCode === Event.KEY_ESC) {
-          if (debug) console.log("ESCAPE");
-          endJog(this.data("ggvis-chart"));
+          //if (debug) console.log("ESCAPE");
+          Shiny.historyManager().endJog();
           return false;
         }
         if (evt.keyCode === Event.KEY_TAB) {
-          if (debug) console.log("TAB");
-          setTimeout(function() { visitNextScenario(evt.shiftKey ? -1 : 1)}, 1);
+          //if (debug) console.log("TAB");
+          setTimeout(function() { Shiny.historyManager().visitNextScenario(evt.shiftKey ? -1 : 1)}, 1);
           return false;
         }
       }).bind(viewDivObj));
@@ -634,96 +456,43 @@ oneTimeInitShinyGgvis = function() {
           }
       }).bind(chart);
       
-      chart.endDrag = (function (xSpec, ySpec, row, dragPositions, dragType) {
+      chart.endDrag = (function (xSpec, ySpec, row, dragPositions, pointConverter, dragType) {
         // derive a range of positions from a completed drag.
         // if dragType is "jog" or "sweep", set that up.
         this.dragItem = null;
         restoreAllMarks();
-        this.defineSweepFromDrag(xSpec, ySpec, row, dragPositions, dragType);
+        
+        if (this.lastMouseWasDrag) { // ensure it was a drag, not just a click
+          Shiny.historyManager().addValueDragItem(this, xSpec, ySpec, row, dragPositions, pointConverter);
+        
+          if (dragType == "jog") Shiny.historyManager().startJog()
+          else if (dragType == "sweep") Shiny.historyManager().setUpSweep();
+        }  
       }).bind(chart);
 
-      chart.defineSweepFromDrag = (function (xSpec, ySpec, row, dragPositions, dragType) {
-        if (!this.lastMouseWasDrag) return;  // was only a click, not a drag
-
-        this.nextJogSpec = null;             // it was a drag, so cancel any previous one
-        if (dragPositions.length<2) return;  // but not a drag that we can use
-
-        var linearise = false;    // config: whether to draw a straight line from start to end 
-        var minDiff = 8;          // pixels, in either direction
-        var chartPoints = [];
-        var scenarios = [];
-        var jogSpec = {};
-        initJogSpec(jogSpec, xSpec, ySpec);  // extract dataset, scales etc
-        if (linearise) {
-          // currently not used
-          var start = dragPositions.first();
-          var end = dragPositions.last();
-          var xDiff = start.x ? end.x - start.x : 0;
-          var yDiff = start.y ? end.y - start.y : 0;
-          var nSteps = Math.floor(Math.min(Math.max(Math.abs(xDiff), Math.abs(yDiff)) / minDiff, 9));
-          if (nSteps == 0) return;
-          var xStep = xDiff / nSteps;
-          var yStep = yDiff / nSteps;
-          for (var s = 0; s <= nSteps; s++) {
-            var evtPt = pt(start.x + (s*xStep), start.y + (s*yStep));
-            chartPoints.push(toChartCoords(evtPt, true, this, jogSpec.xScale, jogSpec.yScale));
-            scenarios.push(s+1);
-          }
-        } else {
-          // evenly space along the user's drag path, for up to 10 scenarios
-          calcDist = function(a, b) { var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx + dy*dy) };
-          var aggDists = [0];           // aggregate distances from start
-          var prev = dragPositions[0];
-          var dist = 0;
-          for (var i=1; i<dragPositions.length; i++) {
-            var next = dragPositions[i];
-            dist += calcDist(prev, next);
-            aggDists.push(dist);
-            prev = next;
-          }
-          var nSteps = Math.floor(Math.min(dist / minDiff, 9));
-          if (nSteps == 0) return;
-          
-          var distStep = dist / nSteps;
-          var aggInd = 0;
-          for (var s=0; s<=nSteps; s++) {
-            var nextDist = s*distStep;
-            // find the first aggregate distance that is at least nextDist along the path
-            for (; aggInd<aggDists.length && aggDists[aggInd]<nextDist; aggInd++) {}
-            aggInd = Math.min(aggInd, aggDists.length-1);    // allow for precision error
-            var nextPoint;
-            if (Math.abs(aggDists[aggInd] - nextDist)<0.5) nextPoint = dragPositions[aggInd]; // a hit, to sub-pixel accuracy
-            else {
-              var ratio = (nextDist-aggDists[aggInd-1])/(aggDists[aggInd]-aggDists[aggInd-1]);
-              var before = dragPositions[aggInd-1];
-              var after = dragPositions[aggInd];
-              nextPoint = pt(before.x + ratio*(after.x-before.x), before.y + ratio*(after.y-before.y))
+      chart.toChartCoords = (function (evtPt, absolute, xScale, yScale) {
+        // based on the x and y drag specs of the specified element, turn the 
+        // event point into an abstract point with coords in x and/or y.
+        // if absolute is true, assume we need to subtract the chart origin.
+        var chartTop = 0, chartLeft = 0;
+        if (absolute) {
+          var chartRect = $(this._el).bounds();
+          var padding = this.padding();
+          chartTop = chartRect.top + padding.top;
+          chartLeft = chartRect.left + padding.left;
+        }
+        var chartGroup = this.model().scene().items[0];
+        var xyScales = [xScale, yScale], xyEvtCoords = [evtPt.x, evtPt.y], xyOffsets = [chartLeft, chartTop], xyMins = [Shiny.xMin, Shiny.yMin], xyMaxs = [Shiny.xMax, Shiny.yMax], xyConverted = [null, null];
+        for (var xy=0; xy<2; xy++){
+          if (xyScales[xy]) {
+            var scaleSplit = xyScales[xy].split(":");
+            xyConverted[xy] = chartGroup.scales[scaleSplit[0]].invert(xyEvtCoords[xy] - xyOffsets[xy]);
+            if (scaleSplit.length>1 && scaleSplit[1]=="percent") {  // range controls are x:percent, y:percent
+              xyConverted[xy] = Math.round((xyConverted[xy]-xyMins[xy])/(xyMaxs[xy]-xyMins[xy])*100);              
             }
-            chartPoints.push(toChartCoords(nextPoint, true, this, jogSpec.xScale, jogSpec.yScale));
-            scenarios.push(s+1);
           }
         }
-        jogSpec.row = row;
-        jogSpec.pointRange = chartPoints;
-        jogSpec.scenarios = scenarios;
-        jogSpec.restorePoint = chartPoints.last();
-        jogSpec.direction = -1;
-        jogSpec.maxIndex = nSteps;
-        jogSpec.index = jogSpec.maxIndex - 1;  // first below the starting point
-        jogSpec.bounce = true;
-        this.nextJogSpec = jogSpec;
-
-        if (dragType) {         // a raw drag does nothing else at this point
-          var self = this;
-          var setUp = function() {
-            if (dragType=="jog") startJog(self);
-            else setUpSweep(self);
-            }
-          if (this.jogSpec) {
-            endJog(this);        // clear any existing jog
-            setTimeout(setUp, 400);  // and give it a chance to settle
-          } else setUp();
-        }
+        return pt(xyConverted[0], xyConverted[1]);
       }).bind(chart);
       
       chart.sortScenarioItems = (function () {
@@ -746,15 +515,13 @@ oneTimeInitShinyGgvis = function() {
         else if (evt.altKey) clickType = "sweep";
         if (clickType) {         // a raw click does nothing
           var self = this;
-          var clickResponse = function() {
-            setUpEditRange(self, item);
-            if (clickType=="jog") startJog(self);
-            else setUpSweep(self);
-            }
-          if (this.jogSpec) {
-            endJog(this);        // clear any existing jog
-            setTimeout(clickResponse, 400);  // and give it a chance to settle
-          } else clickResponse();
+          var manager = Shiny.historyManager();
+          manager.endJogThenDo(function() {
+            manager.addPerturbationItem(self, item, dataRowOrRole(item));
+
+            if (clickType=="jog") manager.startJog();
+            else manager.setUpSweep();
+            });
         }
       }).bind(chart));
       
@@ -764,10 +531,10 @@ oneTimeInitShinyGgvis = function() {
           var xSpec = parseDragSpec(item.dragx);   // may be null
           var ySpec = parseDragSpec(item.dragy);   // ditto
           var dataset = (xSpec && xSpec.dataset) || (ySpec && ySpec.dataset);
-          if (dataset=="workingDataRanges") {
+          if (dataset.indexOf("workingDataRanges")==0) {  // table or chart (raw) instance
             var column = (xSpec && xSpec.column) || (ySpec && ySpec.column);
             var itemRow = dataRowOrRole(item);
-            window.Shiny.timestampedOnInputChange("trigger", { message: "clearControl", args: { dataset: dataset, row: itemRow, column: column } });
+            Shiny.sendCommandMessage("clearControl", { dataset: "workingDataRanges", row: itemRow, column: column });
           }
         }
       }).bind(chart));
@@ -796,8 +563,7 @@ oneTimeInitShinyGgvis = function() {
           handle.xSpec = parseDragSpec(item.dragx);   // may be null
           handle.ySpec = parseDragSpec(item.dragy);   // ditto
           var dataset = handle.dataset = (handle.xSpec && handle.xSpec.dataset) || (handle.ySpec && handle.ySpec.dataset);
-          var msg = { message: "startEdit", args: { dataset: dataset, row: handle.itemRow } };
-          window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+          Shiny.sendCommandMessage("startEdit", { dataset: dataset, row: handle.itemRow });
 
           if (dataset == "guessMList") {
             // HACK
@@ -812,12 +578,15 @@ oneTimeInitShinyGgvis = function() {
           var yScale = handle.ySpec && handle.ySpec.scale;
           var xColumn = handle.xSpec ? handle.xSpec.column : "-";
           var yColumn = handle.ySpec ? handle.ySpec.column : "-";
-          if (xScale == "identity" || yScale == "identity") {
+          // dragging in cells is indicated by "identity" scale
+          if (xScale == "identity") {
             handle.dragStartValue = item.value;
-            handle.dragToPoint = function(evtPos) { sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [pt(handle.dragStartValue + evtPos.x - handle.dragStartPos.x, -1000)])};
+            var chartWidth = 600;  // ought to look it up
+            handle.convertEvtPoint = function(evtPos) { return pt(Math.round(handle.dragStartValue + (evtPos.x - handle.dragStartPos.x)*100/(0.33*chartWidth)), -1000) };
           } else {
-            handle.dragToPoint = function(evtPos) { sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [toChartCoords(evtPos, true, handle.chart, xScale, yScale)]) };
+            handle.convertEvtPoint = function(evtPos) { return handle.chart.toChartCoords(evtPos, true, xScale, yScale) };
           }
+          handle.dragToPoint = function(evtPos) { Shiny.sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [handle.convertEvtPoint(evtPos)])};
 
           // handle.onFocus = function() { console.log("handle focus") }
           // handle.onBlur = function() { console.log("handle blur") }
@@ -833,7 +602,7 @@ oneTimeInitShinyGgvis = function() {
               this.rangeLine.setVertices(vs);
             }
             this.dragToPoint(evtPos);
-          }).bind(handle), 200);
+          }).bind(handle), 300);       // @@ not sure what makes for a good time value here
 
           handle.addScript(function onDrag(evt) {
             this.focus();  // just to make sure
@@ -860,7 +629,8 @@ oneTimeInitShinyGgvis = function() {
 
           handle.onKeyUp = (function onKeyUp(evt) {
             if (evt.getKeyCode() === Event.KEY_ALT) {
-              this.chart.defineSweepFromDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, "sweep");
+              Shiny.historyManager().addValueDragItem(this.chart, this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint);
+              Shiny.historyManager().setUpSweep();
               evt.stop();
               return false;
             }
@@ -876,15 +646,14 @@ oneTimeInitShinyGgvis = function() {
               window.Shiny.shinyapp.sendInput({"showPopup": "FALSE"});
               $world.get("GigvisPopup3").remove();
             };
-            var msg = { message: "endEdit", args: { dataset: this.dataset } };
-            window.Shiny.onInputChange("trigger", JSON.stringify(msg));
+            Shiny.sendCommandMessage("endEdit", { dataset: this.dataset });
             
             this.remove();
             var evt = Global.event;          // hack?
             var dragType = null;
             if (evt.isShiftDown()) dragType = "jog";
             else if (evt.isAltDown()) dragType = "sweep";
-            this.chart.endDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, dragType);
+            this.chart.endDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint, dragType);
           }).bind(handle);
           
           handle.getGrabShadow = function() { return new lively.morphic.Morph() };
@@ -1244,11 +1013,8 @@ oneTimeInitShinyGgvis = function() {
 
   refreshShinyGgvis = function() {
     // The user is throwing away the existing chart(s) and building anew. 
-    livelyRenderedCharts = {};
-    
-    livelyDataTriggers = {};
-    livelyEditRange = null;
-    
+    //Shiny.livelyDataTriggers = {};
+    Shiny.livelyMessageQueue = [];
     Shiny.propLatest = { x: null, y: null };
     Shiny.propHistory = { x: null, y: null };
     delete Shiny.lastColumnHighlight;
