@@ -413,7 +413,9 @@ update_static <- function(name, value, log=FALSE) {
 }
 
 clearInvalidBuildSource <- function(sourceName, clearRefresh) {
-  # hold off updating the reactive waiting_for_build until sources is empty
+  # hold off updating the reactive waiting_for_build until sources is empty.
+  # clearRefresh will be true for any flag that we believe won't be clearing its refresh source
+  # through its own reactive observer (e.g., because its value hasn't changed).
   sources <- gvStatics$invalid_build_sources
   gvStatics$invalid_build_sources <<- sourcesNow <- sources[sources!=sourceName]
   if (length(sourcesNow) == 0) gvReactives$waiting_for_build <- FALSE
@@ -421,7 +423,7 @@ clearInvalidBuildSource <- function(sourceName, clearRefresh) {
   if (clearRefresh && gvStatics$waiting_for_refresh) {
     clearInvalidRefreshSource(sourceName)
     # if that cleared the last waiting source, send any queued data
-    if (!gvStatics$waiting_for_refresh) sendQueuedData(TRUE)   # TRUE means this is a synched send
+    if (!gvStatics$waiting_for_refresh) sendQueuedData()
   }
 }
 
@@ -434,6 +436,15 @@ clearInvalidRefreshSource <- function(sourceName) {
 #     debugLog(paste0("remaining refresh sources: ", length(sourcesNow)))
 #     debugLog(paste(sourcesNow, collapse=" "))
 #   }
+}
+
+cancelWaitForRefresh <- function() {
+  # stop the wait, and send any queued data
+  debugLog("*** cancelling wait with sources remaining:")
+  debugLog(paste(gvStatics$invalid_refresh_sources, collapse=" "))
+
+  gvStatics$waiting_for_refresh <<- FALSE
+  gvStatics$invalid_refresh_sources <<- c()
 }
 
 update_defaultReactive <- function(name, value, log=FALSE) {
@@ -463,16 +474,6 @@ update_sweepReactive <- function(name, value, log=FALSE) {
     if (log) debugLog(capture.output(value))
   }
   clearInvalidBuildSource(paste0("sweep_", name), !changed)
-}
-
-suppressEdits <- function(bool) {
-  # only act if there are some edits to suppress
-  if (length(isolate(gvDefault$workingDataEdits))>0 || length(isolate(gvDefault$workingDataRanges))>0) {
-    # in fact no need to refresh everything
-    #refreshChart("plot1")
-    #refreshChart("plot2")
-    gvSwitches$suppressEdits <- bool
-  }
 }
 
 resetSweep <- function() {
@@ -751,7 +752,7 @@ range_lines <- function(rangeControls, withAxisLines=FALSE) {
   df[which(rowsNotNeedingLines), "strokeWidth"] <- 0
   # axis lines: (minX, 0 to maxX, 0) (0, minY to 0, maxY)
   if (withAxisLines) {
-    axisDF <- data.frame(chartx=c(minX, maxX, 0, 0), charty=c(0, 0, minY, maxY), strokeDash=NA, strokeWidth=2, grouping=c(5,5,6,6))
+    axisDF <- data.frame(chartx=c(minX, maxX, 0, 0), charty=c(0, 0, minY, maxY), strokeDash=NA, strokeWidth=3, grouping=c(5,5,6,6))
     df <- rbind(df, axisDF)
   }
   split_df(df, quote(grouping), env=NULL)
@@ -1025,7 +1026,6 @@ refreshChart <- function(id) {
   # add the registered sources for this chart to those we're waiting for (these will be cleared
   # from within sendOrQueueData)
   sources <- gvStatics[[paste0(id, "Sources")]]
-  # was: gvReactives$invalid_sources <- c(isolate(gvReactives$invalid_sources), sources)
   gvStatics$invalid_refresh_sources <<- unique(c(gvStatics$invalid_refresh_sources, sources))
   if (length(gvStatics$invalid_refresh_sources)>0) gvStatics$waiting_for_refresh <<- TRUE
   # update_static(paste0("refresh", id), TRUE)  no need
@@ -1035,7 +1035,6 @@ sendOrQueueData <- function(dataMessage, session) {
   chartId <- dataMessage$chartId
   dataName <- dataMessage$name
   gvStatics$activeSession <<- session
-  synchedRefresh <- FALSE
 
   chartQueue <- gvStatics$chartDataQueue[[chartId]]
   if (is.null(chartQueue)) chartQueue <- list()
@@ -1043,26 +1042,33 @@ sendOrQueueData <- function(dataMessage, session) {
   gvStatics$chartDataQueue[[chartId]] <<- chartQueue
 
   if (gvStatics$waiting_for_refresh) {
-    synchedRefresh <- TRUE
     # trim the data name to the name used for the source
     sourceName <- substring(dataName, 3) # strip the "r_"
     if (grepl("_tree", sourceName)) sourceName <- substr(sourceName, 1, nchar(sourceName)-5)
     clearInvalidRefreshSource(sourceName)
   }
 
-  if (!gvStatics$waiting_for_refresh) sendQueuedData(synchedRefresh)   # wasn't waiting, or just got cleared
+  # if we're not waiting (or no longer waiting) for refresh, send whatever's queued.
+  # now added a check so we wait for everything to quiesce before sending.  not sure this path
+  # will ever be used.
+  if (!gvStatics$waiting_for_refresh && isTRUE(isolate(gvReactives$quiescent))) {
+    debugLog("******* sending data from sendOrQueueData ********")
+    sendQueuedData()
+  }
 }
 
-sendQueuedData <- function(wasSynched) {
+sendQueuedData <- function() {
   session <- gvStatics$activeSession
   queue <- gvStatics$chartDataQueue
   for (id in names(queue)) {
     chartQueue <- queue[[id]]
     duration <- 0
     # every time we send something for plot1, check if we should also send axisSpec.
-    # and if it was a synched refresh, make the change happen slowly.
+    # and use the appropriate duration.
     if (id == "plot1") {
-      if (wasSynched) duration <- 300
+      #if (wasSynched) duration <- 300
+      duration <- gvStatics$plotUpdateDuration
+      debugLog(paste0("sending with duration: ", duration))
       axisSpec <- isolate(gvDefault$axisSpec)
       if (!identical(axisSpec, gvStatics$lastAxisSpec)) {
         axSpecName = "r_default_axisSpec"
@@ -1079,9 +1085,21 @@ sendQueuedData <- function(wasSynched) {
   }
   gvStatics$chartDataQueue <<- list()     # clear the queue
   gvStatics$activeSession <<- NULL
+  gvStatics$plotUpdateDuration <<- 0      # reset to default
 }
 
 startQuiescencePoll <- function() { gvReactives$quiescent <- FALSE }
+
+updatesHaveQuiesced <- function(session) {
+  # if we were still waiting for some chart reactives to refresh themselves, we now know it ain't 
+  # going to happen.
+  if (gvStatics$waiting_for_refresh) cancelWaitForRefresh()  # and send any queued datasets
+  sendQueuedData()
+
+  session$sendCustomMessage("ggvis_lively_quiescent", list(plotState=capturedPlotState(), scenarioColours=gvStatics$scenarioColours))
+  # prevShinyInvalidations <<- -1   # so we'll always wait at least one cycle
+  gvReactives$quiescent <- TRUE  
+}
 
 capturedPlotState <- function() {
   state <- isolate(reactiveValuesToList(gvSwitches))
@@ -1090,33 +1108,65 @@ capturedPlotState <- function() {
   state
 }
 
-reapplyPlotState <- function(state) {
-  debugLog(capture.output(print(state)))
+reapplySwitchState <- function(state) {
+  # we're sent the whole state.  from that, pick out just the switch settings that determine which marks
+  # are shown.
+  #debugLog(capture.output(print(state)))
+  names <- names(state)
+  names <- names[regexpr("show", names)==1]
+  for (n in names) gvSwitches[[n]] <- state[[n]] # can't do single-bracket setting of reactiveValues e.g. gvSwitches[names] <- state[names]
+}
+
+reapplyEditState <- function(state) {
+  # the name's not great, given that this includes the xProp and yProp switches
+  #debugLog(capture.output(print(state)))
   for (n in gvStatics$plotStateSettings) gvDefault[[n]] <- state[[n]]
-  for (n in setdiff(names(state), gvStatics$plotStateSettings)) gvSwitches[[n]] <- state[[n]]
+  for (n in c("xProp", "yProp")) gvSwitches[[n]] <- state[[n]]
 }
 
 handleTriggerMessage <- function(msg) {
-  debugLog(paste0("message from browser: ", msg$message))
-  if (msg$message=="newXYProps") {
+  # a new value on either of our trigger reactives is a command, or perhaps a set of commands
+  gvStatics$plotUpdateDuration <<- 0        # default
+  instant <- msg$args[["instant"]]
+  if (is.null(instant)) instant <- FALSE
+  if (msg$message=="compoundCommand") {
+    commands <- msg$args[["commands"]]
+    debugLog(paste0("compound command (", length(commands), ")"))
+    for (cmdMsg in commands) handleCommand(cmdMsg, instant)
+  } else handleCommand(msg, instant)
+}
+
+handleCommand <- function(msg, forceInstantaneous=FALSE) {
+  standardUpdate <- if (forceInstantaneous) 0 else 300
+  fastUpdate <- if (forceInstantaneous) 0 else 200
+  debugLog(paste0("-------- command from JS: ", msg$message, " ---------"))
+  if (msg$message == "setSwitch") {
+    args <- msg$args
+    debugLog(paste0("setting switch ", args[["parameter"]], " to ", args[["value"]]))
+    gvSwitches[[args[["parameter"]]]] <- args[["value"]]
+  } else if (msg$message=="newXYProps") {
+    gvStatics$plotUpdateDuration <<- standardUpdate
     recordLatest(); refreshChart('plot1'); refreshChart('plot2');
     args <- msg$args
     gvSwitches$xProp <- args[["x"]]     # NB: can't use $ because it's a named vector, not a list
     gvSwitches$yProp <- args[["y"]]
   } else if (msg$message == "visitScenario") {
+    gvStatics$plotUpdateDuration <<- fastUpdate
     visitScenario(as.numeric(msg$args))
   } else if (msg$message == "resetSweep") {
     resetSweep()
   } else if (msg$message == "suppressEdits") {
     # only act if there are some edits to suppress
     if (length(isolate(gvDefault$workingDataEdits))>0 || length(isolate(gvDefault$workingDataRanges))>0) {
-      refreshChart("plot1")
+      gvStatics$plotUpdateDuration <<- standardUpdate
+      refreshChart("plot1")    # nicer if the updates are synched
       refreshChart("plot2")
       gvSwitches$suppressEdits <- msg$args[["bool"]]
     }
   } else if (msg$message == "clearControl") {
     # clear one of the range-setting controls.
     # args are [ dataset, row, column ]
+    gvStatics$plotUpdateDuration <<- standardUpdate
     args <- msg$args
     dataset <- args$dataset
     row <- args$row
@@ -1136,14 +1186,13 @@ handleTriggerMessage <- function(msg) {
   } else if (msg$message == "endEdit") {
     update_static("editSpec", NULL)
   } else if (msg$message == "edit") {
-    # now always a single command (rather than potentially x/y commands bundled into one message).
     # the command has a "type" (data/parameter) and a "target"
     #   for data, target is { dataset, row, xycolumns } - one of xycolumns can be "-"
     #   for parameter, target is a stringy parameter name
     # then a scenarios collection: [0] for default, [n] (1 to 10) for an individual 
     #   sweep scen (which must already exist), or 1..n to set up a new sweep
     # and a corresponding values collection.
-    # NB: row and scenarios are numeric, but because we use toFixed on values they are strings
+    # NB: row and scenarios are numeric, but because we use toFixed on numeric values they are always strings
     args <- msg$args
     #debugLog(capture.output(print(args)))
     type <- args$type
@@ -1232,8 +1281,16 @@ handleTriggerMessage <- function(msg) {
         update_sweepReactive(parm, sweepList)
       }
     }
-  } else if (msg$message == "revisitPlotState") {
-    reapplyPlotState(msg$args[["plotState"]])
+  } else if (msg$message == "revisitSwitchState") {
+    reapplySwitchState(msg$args[["state"]])
+  } else if (msg$message == "revisitEditState") {
+    if (msg$args[["majorUpdate"]]) {
+      # make this a synched update
+      refreshChart("plot1")
+      refreshChart("plot2")
+      gvStatics$plotUpdateDuration <<- fastUpdate
+    }
+    reapplyEditState(msg$args[["state"]])
   }
 }
 

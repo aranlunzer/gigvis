@@ -32,8 +32,8 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
         if (col==xProp) annotation = "x";
         if (col==yProp) annotation = annotation+"y";
         headerItems.push([{datacolumn: col, annotation: annotation}]);
-        minimaItems.push([{datacolumn: col, value: minimaRow[col], dragx: "identity,workingDataRanges," + col + ",r_default_rangeControls", datarole: 1}]);
-        maximaItems.push([{datacolumn: col, value: maximaRow[col], dragx: "identity,workingDataRanges," + col + ",r_default_rangeControls", datarole: 2}]);
+        minimaItems.push([{datacolumn: col, value: minimaRow[col], dragx: "tablecell,workingDataRanges," + col + ",r_default_rangeControls", datarole: 1}]);
+        maximaItems.push([{datacolumn: col, value: maximaRow[col], dragx: "tablecell,workingDataRanges," + col + ",r_default_rangeControls", datarole: 2}]);
       });
     Shiny.propLatest = { x: xProp, y: yProp };
     
@@ -81,7 +81,8 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
         Shiny.propHistory = latest;
         
         $world.setHandStyle("wait");
-        Shiny.timestampedOnInputChange("trigger", { message: "newXYProps", args: { x: newX, y: newY } });
+        Shiny.historyManager().addParameterRangeItem(Shiny.chartNamed("plot1"), "newXYProps", "axes", [ { x: newX, y: newY } ], null);
+        Shiny.buildAndSendMessage("command", [ "newXYProps", { x: newX, y: newY } ]);
     }
     var revertLastChange = function() {
         // revert to the columns stored in history, if any.
@@ -136,14 +137,14 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
     minimaCells.enter().append("td");
     minimaCells.text(function (d) { return d[0].value })
     .attr("style", function(d) {
-          return "color: " + (editedMinima.indexOf(d[0].datacolumn) == -1 ? "black" : "red") 
+          return "color: " + (editedMinima.indexOf(d[0].datacolumn) == -1 || d[0].value == "0" ? "black" : "red") 
     });
     
     var maximaCells = tableRoot.select("tr.maxima").selectAll("td").data(maximaItems);
     maximaCells.enter().append("td");
     maximaCells.text(function (d) { return d[0].value })
     .attr("style", function(d) {
-          return "color: " + (editedMaxima.indexOf(d[0].datacolumn) == -1 ? "black" : "red") 
+          return "color: " + (editedMaxima.indexOf(d[0].datacolumn) == -1 || d[0].value == "100"  ? "black" : "red") 
     });
     
     // then an inner-table row for each element of the data

@@ -23,16 +23,7 @@ oneTimeInitShinyGgvis = function() {
   Shiny.historyManager = function() {
     return lively.morphic.World.current().get("LivelyRHistory")
   }
-  //Shiny.livelyDataTriggers = {};  // deprecated
   Shiny.livelyMessageQueue = [];
-
-  Shiny.sendMessageWhenReady = function(messageFn, completionFn, queueIfNotReady) {
-    var queue = Shiny.livelyMessageQueue;
-    if (queue.length && !queueIfNotReady) return;   // throw away the message
-
-    queue.push({ messageFn: messageFn, completionFn: completionFn });
-    if (queue.length == 1) queue[0].messageFn();
-  }
 
   Shiny.addCustomMessageHandler("ggvis_lively_quiescent", function(message) {
     Shiny.latestPlotState = message.plotState;
@@ -42,22 +33,54 @@ oneTimeInitShinyGgvis = function() {
     var completionFn = queue.shift().completionFn;
     if (completionFn) {
       console.log("found completion function");
-      completionFn();
+      completionFn(message);
     }
 
     if (queue.length) queue[0].messageFn();
   });
   
-  Shiny.sendReactiveValue = function(varName, value) {
-    Shiny.sendMessageWhenReady(function() { Shiny.onInputChange(varName, value) }, null, true );
-  }
-
-  Shiny.sendCommandMessage = function(message, args, triggerFn, channel) {
+  Shiny.sendMessage = function(message, forceUpdate, completionFn, channel) {
+    // if forceUpdate is true we add a timestamp so the message is guaranteed to be noticed
     var ch = channel || "trigger";  // allow override of default channel
-    Shiny.sendMessageWhenReady(function() { Shiny.timestampedOnInputChange(ch, { message: message, args: args }) }, triggerFn, true);
+    var messageFn = forceUpdate ? Shiny.timestampedOnInputChange.curry(ch, message) : Shiny.onInputChange.curry(ch, message);
+
+    //if (completionFn && typeof completionFn != "function") debugger;
+
+    var queue = Shiny.livelyMessageQueue;
+
+    queue.push({ messageFn: messageFn, completionFn: completionFn });
+    if (queue.length == 1) queue[0].messageFn();
+  }
+  
+  Shiny.sendReactiveValue = function(varName, value) {
+    // varName becomes the channel, value the message
+    Shiny.sendMessage(value, false, null, varName);
+  }
+  
+  Shiny.buildAndSendMessage = function(type, args, completionFn, channel) {
+    // type is "data", "command", "parameter", "compound"
+    var message = Shiny.buildMessage(type, args);
+    Shiny.sendMessage(message, true, completionFn, channel)
   }
 
-  Shiny.sendEditMessage = function(dataset, xycolumns, row, scenarios, chartPoints, triggerFn, channel) {
+  Shiny.buildMessage = function(type, args) {
+    var funcTable = { switch: Shiny.buildSwitchMessage, data: Shiny.buildDataMessage, command: Shiny.buildCommandMessage, parameter: Shiny.buildParameterMessage, compound: Shiny.buildCompoundMessage };
+    return funcTable[type].apply(null, args);
+  }
+
+  Shiny.buildCompoundMessage = function(commandArray, instant) {
+    return { message: "compoundCommand", args: { commands: commandArray, instant: instant } }
+  }
+  
+  Shiny.buildSwitchMessage = function(parameter, value) {
+    return { message: "setSwitch", args: { parameter: parameter, value: value } };
+  }
+
+  Shiny.buildCommandMessage = function(command, args) {
+    return { message: command, args: args };
+  }
+
+  Shiny.buildDataMessage = function(dataset, xycolumns, row, scenarios, chartPoints) {
     // edits that arise from dragging chart points
     var args = {};
     args.type = "data";
@@ -69,18 +92,16 @@ oneTimeInitShinyGgvis = function() {
       if (cp.y) xy[[1]] = cp.y.toFixed(2);
       return xy;
     });
-    var ch = channel || "trigger";  // allow override of default channel
-    Shiny.sendMessageWhenReady(function() { Shiny.timestampedOnInputChange(ch, { message: "edit", args: args }) }, triggerFn, true);
+    return { message: "edit", args: args };
   }
 
-  Shiny.sendParameterMessage = function(parameter, scenarios, values, triggerFn, channel) {
+  Shiny.buildParameterMessage = function(parameter, scenarios, values) {
     var args = { type: "parameter", target: parameter, scenarios: scenarios, values: values };
-    var ch = channel || "trigger";  // allow override of default channel
-    Shiny.sendMessageWhenReady(function() { Shiny.timestampedOnInputChange(ch, { message: "edit", args: args }) }, triggerFn, true);
+    return { message: "edit", args: args };
   }
 
   Shiny.suppressEdits = function(bool) {
-    Shiny.sendCommandMessage("suppressEdits", { bool: bool });
+    Shiny.buildAndSendMessage("command", [ "suppressEdits", { bool: bool } ]);
   }
 
   var ggvisOutputBinding = new Shiny.OutputBinding();
@@ -259,14 +280,6 @@ oneTimeInitShinyGgvis = function() {
             needsSort = subData[name].length>0 && (subData[name][0].scenario!==undefined);
           }
         }
-        /*
-        var trigger = Shiny.livelyDataTriggers[name];
-        if (trigger) {
-          //console.log("TRIGGER: "+message.duration+" "+name);
-          delete Shiny.livelyDataTriggers[name];
-          setTimeout(trigger, message.duration);
-        };
-        */
       });  // end of forEach(name)
 
       $world.setHandStyle(null);
@@ -333,9 +346,13 @@ oneTimeInitShinyGgvis = function() {
       
       function parsedDataRows(item) {
         // assume there is a datarows element, and that it's a JSON-encoded collection.
-        // parse it and cache the result.
-        if (!item.cachedDataRows) item.cachedDataRows = JSON.parse(item.datarows);
-        return item.cachedDataRows
+        // iff the item is part of a symbol mark, cache the result (because once assigned it can't change).
+        var rows = item.cachedDataRows;  // might not be there
+        if (!rows) {
+          rows = JSON.parse(item.datarows);
+          if (item.mark.marktype == "symbol") item.cachedDataRows = rows;
+        }
+        return rows;
       }
       
       function dataRowOrRole(item) {
@@ -379,12 +396,13 @@ oneTimeInitShinyGgvis = function() {
       }
 
       function parseDragSpec(dragSpec) {
-        // a dragSpec has comma-separated components  scale (which can be "identity" for a cell drag, or have a suffix, eg. "x:percent"), dataset, column[, triggerName]
+        // a dragSpec has comma-separated components  scale (which can be "tablecell" for a cell drag, or have a suffix, eg. "x:percent"), dataset, column
+        // apr 2014: we now ignore the optional fourth component that used to signify a dataset to watch for
         if (!dragSpec) return null;
 
         var s = dragSpec.split(",");
         var spec = { scale: s[0], dataset: s[1], column: s[2] };
-        if (s.length>3) spec.triggerName = s[3];
+        //if (s.length>3) spec.triggerName = s[3];
         return spec;
       }
       Shiny.parseDragSpec = parseDragSpec;
@@ -534,7 +552,11 @@ oneTimeInitShinyGgvis = function() {
           if (dataset.indexOf("workingDataRanges")==0) {  // table or chart (raw) instance
             var column = (xSpec && xSpec.column) || (ySpec && ySpec.column);
             var itemRow = dataRowOrRole(item);
-            Shiny.sendCommandMessage("clearControl", { dataset: "workingDataRanges", row: itemRow, column: column });
+            Shiny.buildAndSendMessage("command", [ "clearControl", { dataset: "workingDataRanges", row: itemRow, column: column } ]);
+            var returnValue = itemRow & 1 ? 0 : 100;
+            var pseudoPosition = pt(xSpec ? returnValue : -1000, ySpec ? returnValue : -1000);
+            var pseudoConverter = function(pt) { return pt }
+            Shiny.historyManager().addValueDragItem(this, xSpec, ySpec, itemRow, [pseudoPosition], pseudoConverter);
           }
         }
       }).bind(chart));
@@ -563,7 +585,7 @@ oneTimeInitShinyGgvis = function() {
           handle.xSpec = parseDragSpec(item.dragx);   // may be null
           handle.ySpec = parseDragSpec(item.dragy);   // ditto
           var dataset = handle.dataset = (handle.xSpec && handle.xSpec.dataset) || (handle.ySpec && handle.ySpec.dataset);
-          Shiny.sendCommandMessage("startEdit", { dataset: dataset, row: handle.itemRow });
+          Shiny.buildAndSendMessage("command", [ "startEdit", { dataset: dataset, row: handle.itemRow } ]);
 
           if (dataset == "guessMList") {
             // HACK
@@ -578,15 +600,18 @@ oneTimeInitShinyGgvis = function() {
           var yScale = handle.ySpec && handle.ySpec.scale;
           var xColumn = handle.xSpec ? handle.xSpec.column : "-";
           var yColumn = handle.ySpec ? handle.ySpec.column : "-";
-          // dragging in cells is indicated by "identity" scale
-          if (xScale == "identity") {
+          // dragging in cells is indicated by "tablecell" scale
+          if (xScale == "tablecell") {
             handle.dragStartValue = item.value;
             var chartWidth = 600;  // ought to look it up
-            handle.convertEvtPoint = function(evtPos) { return pt(Math.round(handle.dragStartValue + (evtPos.x - handle.dragStartPos.x)*100/(0.33*chartWidth)), -1000) };
+            handle.convertEvtPoint = function(evtPos) { return pt(Math.min(100, Math.max(0, Math.round(handle.dragStartValue + (evtPos.x - handle.dragStartPos.x)*100/(0.33*chartWidth)))), -1000) };
           } else {
             handle.convertEvtPoint = function(evtPos) { return handle.chart.toChartCoords(evtPos, true, xScale, yScale) };
           }
-          handle.dragToPoint = function(evtPos) { Shiny.sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [handle.convertEvtPoint(evtPos)])};
+          handle.dragToPoint = function(evtPos) { 
+            Shiny.buildAndSendMessage("data", [ handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [handle.convertEvtPoint(evtPos)] ])
+            //Shiny.sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [handle.convertEvtPoint(evtPos)])
+          };
 
           // handle.onFocus = function() { console.log("handle focus") }
           // handle.onBlur = function() { console.log("handle blur") }
@@ -646,7 +671,7 @@ oneTimeInitShinyGgvis = function() {
               window.Shiny.shinyapp.sendInput({"showPopup": "FALSE"});
               $world.get("GigvisPopup3").remove();
             };
-            Shiny.sendCommandMessage("endEdit", { dataset: this.dataset });
+            Shiny.buildAndSendMessage("command", [ "endEdit", { dataset: this.dataset } ]);
             
             this.remove();
             var evt = Global.event;          // hack?
@@ -1013,7 +1038,6 @@ oneTimeInitShinyGgvis = function() {
 
   refreshShinyGgvis = function() {
     // The user is throwing away the existing chart(s) and building anew. 
-    //Shiny.livelyDataTriggers = {};
     Shiny.livelyMessageQueue = [];
     Shiny.propLatest = { x: null, y: null };
     Shiny.propHistory = { x: null, y: null };
