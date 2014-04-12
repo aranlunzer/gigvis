@@ -1,17 +1,11 @@
 #debugLog <- function(message) { if (lg_debug && !isTRUE(getOption("shiny.localServer"))) write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
-# debugLog <- function(message) {
-#   t = system.time({if (lg_debug && !isTRUE(getOption("shiny.localServer"))) 
-#     write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) })["elapsed"] 
-#   write(paste0(t), file="lively_r_log", append=TRUE)
-# }
-#debugLog <- function(message) { if (lg_debug) write(paste0(Sys.time(),": ", message), file="", append=TRUE) }
 debugLog <- function(message) {
   if (lg_debug && !isTRUE(getOption("shiny.localServer"))) {
     if (is.null(debugLogFile)) debugLogFile <<- file("lively_r_log", "a", blocking=FALSE)
     write(paste0(Sys.time(),": ", message), file=debugLogFile)
   }
 }
-                          
+      
 alwaysDebugLog <- function(message) { write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
 
 printReactLog <- function() {
@@ -29,8 +23,12 @@ startControlServer <- function() {
   library(RJSONIO)
   options(shiny.withlively=TRUE)
   options(shiny.localServer=TRUE)
-  assign("lg_debug", FALSE, envir=globalenv())
-
+  evalInGlobalEnv = function(str) {
+    # do in the global environment
+    eval(parse(text=str), envir=globalenv())
+  }
+  evalInGlobalEnv('lg_debug = TRUE; debugLogFile = NULL')  
+  
   outerServerRunning <- TRUE
   while (outerServerRunning) {
     outerServerRunning <- runControlServer()
@@ -71,7 +69,7 @@ runControlServer <- function() {
   server <- startServer("0.0.0.0", port, app)
   
   while (controlPolling) {
-    service(250)
+    service(50)
     Sys.sleep(0.001)
   }
   
@@ -458,7 +456,8 @@ update_defaultReactive <- function(name, value, log=FALSE) {
     gvDefault[[name]] <- value
     debugLog(paste0("updated default reactive: ", name))
     if (log) debugLog(capture.output(value))
-  }
+  }    # else  { debugLog(paste0("no change in default reactive: ", name)) }
+
   # HACK: axisSpec won't be called up explicitly by the chart, so always clear its flag
   clearInvalidBuildSource(paste0("default_", name), (!changed || name=="axisSpec"))
 }
@@ -543,16 +542,18 @@ bindSweepSplitDFs <- function(dfs, colourProperty, requiredCols=list()) {
     # one df corresponds to one scenario, and hence one colour.
     # each df is expected to have several pieces.
     # so iterate through the dfs, updating all their pieces and gathering them into one.
-    dfColouredPieces <- lapply(1:length(dfs), function(scen) {
-                              colour <- gvStatics$scenarioColours[[scen]]
-                              pieces <- dfs[[scen]]     # one split_df, with indexable pieces
+    dfColouredPieces <- lapply(1:length(dfs), function(index) {
+                              # when not a standard sweep, make all the lines blue
+                              colour <- if (gvStatics$iterating) "#0000FF" else gvStatics$scenarioColours[[scen]]
+                              pieces <- dfs[[index]]     # one split_df, with indexable pieces
+                              scenario <- if (gvStatics$iterating) pieces[[1]][1,"scenario"] else index
                               lapply(1:length(pieces), function(pi) {
                                 piece <- pieces[[pi]]
                                 piece[[colourProperty]] <- colour
-                                piece$scenario <- scen
+                                piece$scenario <- scenario
                                 piece})
                         })
-    # debugLog(capture.output(print(colouredPieces)))
+    #debugLog(capture.output(print(dfColouredPieces)))
     structure(do.call("c", dfColouredPieces), class = "split_df", variables = NULL)
   }
 }
@@ -571,12 +572,6 @@ bindSweepBinDFs <- function(dfs, colourProperty, requiredCols=list()) {
     #debugLog(capture.output(print(colouredPieces)))
     structure(colouredPieces, class = "split_df", variables = NULL)
   }
-}
-
-# when a chart is cleared for refresh, this is called to record the values used last time
-recordLatest <- function() {
-  # TODO: generalise this
-  for (name in c("xProp", "yProp")) update_static(paste0(name, "Latest"), isolate(gvSwitches[[name]]))
 }
 
 mergeManipulationLists <- function(default, sweep) {
@@ -909,19 +904,6 @@ scatterPlotWithSweep <- function() {
                                    ifelse(presentInSome, reducedOpacity, zeroOpacity))
   }
   scatterDF$keyField <- as.character(1:nrow(scatterDF))
-
-  prevXProp <- gvStatics$xPropLatest
-  prevYProp <- gvStatics$yPropLatest
-  xyChanged <- 
-    (!is.null(prevXProp) && (prevXProp != xProp)) ||
-    (!is.null(prevYProp) && (prevYProp != yProp))
-  if (xyChanged) {   # could be first time through
-    update_static("xPropHistory", if (is.null(prevXProp)) xProp else prevXProp)
-    update_static("yPropHistory", if (is.null(prevYProp)) yProp else prevYProp)
-    update_static("xPropLatest", xProp)     # for next time
-    update_static("yPropLatest", yProp)
-  }
-
   scatterDF$chartx <- scatterDF[[xProp]]
   scatterDF$charty <- scatterDF[[yProp]]
   scatterDF$dragx <- paste0("x,workingDataEdits,", xProp, ",r_sweep_scatter")
@@ -1032,6 +1014,8 @@ refreshChart <- function(id) {
 }
 
 sendOrQueueData <- function(dataMessage, session) {
+  if (gvStatics$iterating) return           # simply ignore (though it shouldn't be invoked anyway)
+
   chartId <- dataMessage$chartId
   dataName <- dataMessage$name
   gvStatics$activeSession <<- session
@@ -1091,9 +1075,12 @@ sendQueuedData <- function() {
 startQuiescencePoll <- function() { gvReactives$quiescent <- FALSE }
 
 updatesHaveQuiesced <- function(session) {
+  if (isolate(gvReactives$quiescent)) return  # someone else (probably gatherResultAndContinue) has taken care of it
+
   # if we were still waiting for some chart reactives to refresh themselves, we now know it ain't 
   # going to happen.
-  if (gvStatics$waiting_for_refresh) cancelWaitForRefresh()  # and send any queued datasets
+  if (gvStatics$waiting_for_refresh) cancelWaitForRefresh()
+
   sendQueuedData()
 
   session$sendCustomMessage("ggvis_lively_quiescent", list(plotState=capturedPlotState(), scenarioColours=gvStatics$scenarioColours))
@@ -1108,29 +1095,31 @@ capturedPlotState <- function() {
   state
 }
 
-reapplySwitchState <- function(state) {
-  # we're sent the whole state.  from that, pick out just the switch settings that determine which marks
-  # are shown.
+reapplyState <- function(state, switches, edits) {
   #debugLog(capture.output(print(state)))
-  names <- names(state)
-  names <- names[regexpr("show", names)==1]
-  for (n in names) gvSwitches[[n]] <- state[[n]] # can't do single-bracket setting of reactiveValues e.g. gvSwitches[names] <- state[names]
+  if (switches) {
+    # pick out just the switch settings that determine which marks are shown.
+    names <- names(state)
+    names <- names[regexpr("show", names)==1]
+    for (n in names) gvSwitches[[n]] <- state[[n]] # can't do single-bracket setting of reactiveValues e.g. gvSwitches[names] <- state[names]
+  }
+  if (edits) {
+    for (n in gvStatics$plotStateSettings) gvDefault[[n]] <- state[[n]]
+    for (n in c("xProp", "yProp")) gvSwitches[[n]] <- state[[n]]
+  }
 }
 
-reapplyEditState <- function(state) {
-  # the name's not great, given that this includes the xProp and yProp switches
-  #debugLog(capture.output(print(state)))
-  for (n in gvStatics$plotStateSettings) gvDefault[[n]] <- state[[n]]
-  for (n in c("xProp", "yProp")) gvSwitches[[n]] <- state[[n]]
-}
-
-handleTriggerMessage <- function(msg) {
+handleTriggerMessage <- function(msg, session) {
   # a new value on either of our trigger reactives is a command, or perhaps a set of commands
   gvStatics$plotUpdateDuration <<- 0        # default
-  instant <- msg$args[["instant"]]
+  #debugLog(capture.output(print(msg)))
+  args <- msg$args
+  annotations <- msg$annotations
+  gvStatics$historyPseudoIndex <<- if (is.null(annotations)) NULL else annotations$historyPseudoIndex
+  instant <- args[["instant"]]              # for now, only compoundCommand messages have this argument
   if (is.null(instant)) instant <- FALSE
   if (msg$message=="compoundCommand") {
-    commands <- msg$args[["commands"]]
+    commands <- args[["commands"]]
     debugLog(paste0("compound command (", length(commands), ")"))
     for (cmdMsg in commands) handleCommand(cmdMsg, instant)
   } else handleCommand(msg, instant)
@@ -1140,34 +1129,47 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
   standardUpdate <- if (forceInstantaneous) 0 else 300
   fastUpdate <- if (forceInstantaneous) 0 else 200
   debugLog(paste0("-------- command from JS: ", msg$message, " ---------"))
-  if (msg$message == "setSwitch") {
-    args <- msg$args
+  command <- msg$message
+  args <- msg$args
+  if (command=="dummy") {
+    # nothing to do; just wait for quiescence
+  } else if (command=="gather") {
+    # Rprof("r_profile", memory.profiling=FALSE, interval=0.002)
+    gvStatics$iterating <<- TRUE
+    gvStatics$iterationCommands <<- args[["commands"]]
+    gvStatics$iterationResults <<- c()
+    gatherResultAndContinue(session)
+  } else if (command=="startIteration") {
+    gvStatics$iterating <<- TRUE
+    gvStatics$iterationResults <<- list()
+  } else if (command=="stopIteration") {
+    gvStatics$iterating <<- FALSE
+    gvStatics$iterationResults <<- list()
+  } else if (command == "setSwitch") {
     debugLog(paste0("setting switch ", args[["parameter"]], " to ", args[["value"]]))
     gvSwitches[[args[["parameter"]]]] <- args[["value"]]
-  } else if (msg$message=="newXYProps") {
+  } else if (command=="newXYProps") {
     gvStatics$plotUpdateDuration <<- standardUpdate
-    recordLatest(); refreshChart('plot1'); refreshChart('plot2');
-    args <- msg$args
+    refreshChart('plot1'); refreshChart('plot2');
     gvSwitches$xProp <- args[["x"]]     # NB: can't use $ because it's a named vector, not a list
     gvSwitches$yProp <- args[["y"]]
-  } else if (msg$message == "visitScenario") {
+  } else if (command == "visitScenario") {
     gvStatics$plotUpdateDuration <<- fastUpdate
-    visitScenario(as.numeric(msg$args))
-  } else if (msg$message == "resetSweep") {
+    visitScenario(args[["scenario"]])
+  } else if (command == "resetSweep") {
     resetSweep()
-  } else if (msg$message == "suppressEdits") {
+  } else if (command == "suppressEdits") {
     # only act if there are some edits to suppress
     if (length(isolate(gvDefault$workingDataEdits))>0 || length(isolate(gvDefault$workingDataRanges))>0) {
       gvStatics$plotUpdateDuration <<- standardUpdate
       refreshChart("plot1")    # nicer if the updates are synched
       refreshChart("plot2")
-      gvSwitches$suppressEdits <- msg$args[["bool"]]
+      gvSwitches$suppressEdits <- args[["bool"]]
     }
-  } else if (msg$message == "clearControl") {
+  } else if (command == "clearControl") {
     # clear one of the range-setting controls.
     # args are [ dataset, row, column ]
     gvStatics$plotUpdateDuration <<- standardUpdate
-    args <- msg$args
     dataset <- args$dataset
     row <- args$row
     column <- args$column
@@ -1180,12 +1182,11 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
       editML[[rowIndex]] <- rowList
       gvDefault[[dataset]] <- editML
     }
-  } else if (msg$message == "startEdit") {
-    args <- msg$args       # dataset, row
+  } else if (command == "startEdit") {
     update_static("editSpec", args)
-  } else if (msg$message == "endEdit") {
+  } else if (command == "endEdit") {
     update_static("editSpec", NULL)
-  } else if (msg$message == "edit") {
+  } else if (command == "edit") {
     # the command has a "type" (data/parameter) and a "target"
     #   for data, target is { dataset, row, xycolumns } - one of xycolumns can be "-"
     #   for parameter, target is a stringy parameter name
@@ -1193,7 +1194,7 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
     #   sweep scen (which must already exist), or 1..n to set up a new sweep
     # and a corresponding values collection.
     # NB: row and scenarios are numeric, but because we use toFixed on numeric values they are always strings
-    args <- msg$args
+
     #debugLog(capture.output(print(args)))
     type <- args$type
     target <- args$target            # string or list
@@ -1281,16 +1282,69 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
         update_sweepReactive(parm, sweepList)
       }
     }
-  } else if (msg$message == "revisitSwitchState") {
-    reapplySwitchState(msg$args[["state"]])
-  } else if (msg$message == "revisitEditState") {
-    if (msg$args[["majorUpdate"]]) {
+  } else if (command == "revisitState") {
+    if (isTRUE(args[["majorUpdate"]])) {
       # make this a synched update
       refreshChart("plot1")
       refreshChart("plot2")
       gvStatics$plotUpdateDuration <<- fastUpdate
     }
-    reapplyEditState(msg$args[["state"]])
+    reapplyState(args[["state"]], args[["switches"]], args[["edits"]])
+  } else debugLog("********* unknown command *********")
+}
+
+
+harvestIterationResult <- function(session) {
+  # HACK: currently hard-coded to extract default_lmLine and add it to a special sweep_lmLine
+  
+  if (!is.null(gvStatics$historyPseudoIndex)) {
+    soFar <- gvStatics$iterationResults
+    latestResult <- isolate(gvDefault$lmLine)
+    for (piece in 1:length(latestResult)) latestResult[[piece]]$scenario <- gvStatics$historyPseudoIndex
+    soFar[[length(soFar)+1]] <- latestResult
+    gvStatics$iterationResults <<- soFar
+    data_content <- bindSweepSplitDFs(gvStatics$iterationResults, "stroke", list(stroke="black"))
+    #debugLog(capture.output(print(data_content)))
+    chartId = "plot1"
+    data_name <- "r_sweep_lmLine" 
+    dataName <- paste0(data_name, "_tree")
+    dataValue <- list(list(
+      name = dataName,
+      format = list(type = "treejson"),
+      values = list(children = lapply(data_content, function(x) list(children = df_to_json(x))))
+    ))
+    valueList <- list()
+    valueList[[dataName]] <- dataValue
+    
+    duration <- 0
+    session$sendCustomMessage("ggvis_lively_data", list(      # use most recently supplied session
+      chartId = chartId,
+      duration = duration,
+      valueList = valueList
+    ))
+  }
+  
+  session$sendCustomMessage("ggvis_lively_quiescent", list())
+  gvReactives$quiescent <- TRUE
+}
+
+
+# CURRENTLY NOT USED: experiment in iterating through multiple commands, accumulating 
+# results (here hard-coded as nrow of workingData) until the supply of commands runs out.
+gatherResultAndContinue <- function(session) {
+  gvStatics$iterationResults <<- c(gvStatics$iterationResults, nrow(isolate(gvDefault$workingData)))
+  debugLog("gather")
+  remaining <- gvStatics$iterationCommands
+  if (length(remaining)>0) {
+    nextCmd <- remaining[[1]]
+    gvStatics$iterationCommands <<- remaining[-1]
+    handleCommand(nextCmd)
+  } else {
+    # Rprof(NULL)
+    gvStatics$iterating <<- FALSE
+    session$sendCustomMessage("ggvis_lively_quiescent", list(gatheredValues=gvStatics$iterationResults))
+    gvStatics$iterationCommands <<- gvStatics$iterationResults <<- NULL
+    gvReactives$quiescent <- TRUE
   }
 }
 

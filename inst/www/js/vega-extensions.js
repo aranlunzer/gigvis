@@ -85,6 +85,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
         Shiny.buildAndSendMessage("command", [ "newXYProps", { x: newX, y: newY } ]);
     }
     var revertLastChange = function() {
+        // NO LONGER USED
         // revert to the columns stored in history, if any.
         switchCols(Shiny.propHistory["x"], Shiny.propHistory["y"]);
     }
@@ -119,7 +120,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
         // console.log(d3.event.getKeyChar());
         if (d3.event.getKeyChar() == "X") switchCols(d[0].datacolumn, null);
         else if (d3.event.getKeyChar() == "Y") switchCols(null, d[0].datacolumn);
-        else if (d3.event.getKeyCode() == Event.KEY_SPACEBAR) revertLastChange();
+        // else if (d3.event.getKeyCode() == Event.KEY_SPACEBAR) revertLastChange();   DISABLED
         d3.event.stopPropagation();
         d3.event.preventDefault();
         });
@@ -135,16 +136,18 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
     // minima and maxima rows
     var minimaCells = tableRoot.select("tr.minima").selectAll("td").data(minimaItems);
     minimaCells.enter().append("td");
+    minimaCells.each(function(d) { d[0]._element = this });
     minimaCells.text(function (d) { return d[0].value })
     .attr("style", function(d) {
-          return "color: " + (editedMinima.indexOf(d[0].datacolumn) == -1 || d[0].value == "0" ? "black" : "red") 
+          return "color: " + (editedMinima.indexOf(d[0].datacolumn) == -1 || d[0].value == "0" ? "black" : "#E00000")
     });
     
     var maximaCells = tableRoot.select("tr.maxima").selectAll("td").data(maximaItems);
     maximaCells.enter().append("td");
+    maximaCells.each(function(d) { d[0]._element = this });
     maximaCells.text(function (d) { return d[0].value })
     .attr("style", function(d) {
-          return "color: " + (editedMaxima.indexOf(d[0].datacolumn) == -1 || d[0].value == "100"  ? "black" : "red") 
+          return "color: " + (editedMaxima.indexOf(d[0].datacolumn) == -1 || d[0].value == "100"  ? "black" : "#E00000") 
     });
     
     // then an inner-table row for each element of the data

@@ -247,6 +247,8 @@ lively_observe_data <- function(r_spec, id, session) {
                 firstTime <<- FALSE
                 debugLog("first time") 
               } else {
+                # don't prepare Vega data if we're just iterating through history
+                if (!gvStatics$iterating) {
                 # split_df handling is different
                 if (!is.split_df(data_content)) {
                   sendOrQueueData(list(
@@ -270,7 +272,7 @@ lively_observe_data <- function(r_spec, id, session) {
                     ))
                   ), session)
                 }
-              }
+              }}
             }
           }, label="obs_single_data")
 #           session$onSessionEnded(function() {

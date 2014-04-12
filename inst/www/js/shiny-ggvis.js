@@ -32,7 +32,7 @@ oneTimeInitShinyGgvis = function() {
     
     var completionFn = queue.shift().completionFn;
     if (completionFn) {
-      console.log("found completion function");
+      //console.log("found completion function");
       completionFn(message);
     }
 
@@ -54,24 +54,22 @@ oneTimeInitShinyGgvis = function() {
   
   Shiny.sendReactiveValue = function(varName, value) {
     // varName becomes the channel, value the message
-    Shiny.sendMessage(value, false, null, varName);
+    Shiny.sendMessage(value, false, null, varName);  // false means we won't add a timestamp
   }
   
   Shiny.buildAndSendMessage = function(type, args, completionFn, channel) {
-    // type is "data", "command", "parameter", "compound"
+    // type is "switch", "data", "command", "parameter"
     var message = Shiny.buildMessage(type, args);
     Shiny.sendMessage(message, true, completionFn, channel)
   }
 
-  Shiny.buildMessage = function(type, args) {
-    var funcTable = { switch: Shiny.buildSwitchMessage, data: Shiny.buildDataMessage, command: Shiny.buildCommandMessage, parameter: Shiny.buildParameterMessage, compound: Shiny.buildCompoundMessage };
-    return funcTable[type].apply(null, args);
+  Shiny.buildMessage = function(type, args, annotations) {
+    var funcTable = { switch: Shiny.buildSwitchMessage, data: Shiny.buildDataMessage, command: Shiny.buildCommandMessage, parameter: Shiny.buildParameterMessage };
+    var message = funcTable[type].apply(null, args);
+    if (annotations) message.annotations = annotations;
+    return message;
   }
 
-  Shiny.buildCompoundMessage = function(commandArray, instant) {
-    return { message: "compoundCommand", args: { commands: commandArray, instant: instant } }
-  }
-  
   Shiny.buildSwitchMessage = function(parameter, value) {
     return { message: "setSwitch", args: { parameter: parameter, value: value } };
   }
@@ -212,6 +210,11 @@ oneTimeInitShinyGgvis = function() {
     console.log("ggvis_lively_vega_spec", chartId, spec);
 
     buildLivelyChart(spec, chartId, renderer);
+    if (!Shiny.latestPlotState) {
+      // now that we have a plot state that can be shared, schedule a command to ensure it is sent to JS
+      Shiny.latestPlotState = { dummyDuringBuild: true };
+      Shiny.buildAndSendMessage("command", [ "dummy", {} ]);
+    }
     $world.setHandStyle(null);
   });
 
@@ -456,12 +459,29 @@ oneTimeInitShinyGgvis = function() {
             ch.update({ props: "highlight", items: relatedItems(ch, item) })
           });
         }
+        
+        // hack: for lmLine demo, look explicitly for the line items
+        try {
+          if (item.mark.def.description.datasource == "r_default_lmLine") {
+            chart.update({ props: "highlight", items: [item]});
+          }
+          if (item.mark.def.description.datasource == "r_sweep_lmLine") {
+            chart.update({ props: "highlight", items: [item]});
+            Shiny.historyManager().flashHistoryPseudoIndex(item.scenario);
+          }
 
+        }
+        catch(e) {};
       }).bind(chart));
 
       function restoreAllMarks() {
           allCharts().forEach(function(ch) {
             ch.update({ props: "update", items: allMarkableItems(ch) });
+
+            // hack to clear highlighting on paths such as lmLine
+            var lineItems = [];
+            d3.select(ch._el).selectAll("svg.marks path").each(function(d) { if (d instanceof Array && d[0].hasOwnProperty("datarows")) { lineItems.push(d[0]) } });
+            if (lineItems.length>0) ch.update({ props: "update", items: lineItems });
           });
       }
       
@@ -472,19 +492,26 @@ oneTimeInitShinyGgvis = function() {
               ch.update({ props: "highlight", items: relatedItems(ch, dragItem) })
             });
           }
+          if (this.dragCell) {
+            var origC = Global.apps.ColorParser.getColorFromString("orange");
+            var newCString = origC.withA(0.5).toRGBAString();
+            this.dragCell.style.backgroundColor = newCString;
+            // this.dragCell.style.setProperty("background-color", newCString, null);
+          }
       }).bind(chart);
       
       chart.endDrag = (function (xSpec, ySpec, row, dragPositions, pointConverter, dragType) {
         // derive a range of positions from a completed drag.
         // if dragType is "jog" or "sweep", set that up.
-        this.dragItem = null;
+        if (this.dragCell) this.dragCell.style.backgroundColor = null;
+        this.dragItem = this.dragCell = null;
         restoreAllMarks();
         
         if (this.lastMouseWasDrag) { // ensure it was a drag, not just a click
           Shiny.historyManager().addValueDragItem(this, xSpec, ySpec, row, dragPositions, pointConverter);
         
           if (dragType == "jog") Shiny.historyManager().startJog()
-          else if (dragType == "sweep") Shiny.historyManager().setUpSweep();
+          else if (dragType == "sweep") Shiny.historyManager().selectLastItemForSweep();
         }  
       }).bind(chart);
 
@@ -522,7 +549,8 @@ oneTimeInitShinyGgvis = function() {
       
       chart.on("mouseout", (function(evt, item) {
         if (this.dragItem) return;
-        if (item.datarows) restoreAllMarks();
+        // hack: "scenario" put in to catch lmLine for demo
+        if (item.datarows || item.hasOwnProperty("scenario")) restoreAllMarks();
       }).bind(chart));
 
       chart.on("click", (function(evt, item) {  // NB: non-morphic event
@@ -538,7 +566,7 @@ oneTimeInitShinyGgvis = function() {
             manager.addPerturbationItem(self, item, dataRowOrRole(item));
 
             if (clickType=="jog") manager.startJog();
-            else manager.setUpSweep();
+            else setTimeout(manager.selectLastItemForSweep.bind(manager), 1);
             });
         }
       }).bind(chart));
@@ -569,7 +597,12 @@ oneTimeInitShinyGgvis = function() {
         //    args:
         //      0 -> { dataset: "workingData", column: "wt", row: 6, value: 3.5 }
         //      1 -> { dataset: "workingData", column: "mpg", row: 6, value: 15 }
-        console.log("mousedown on ", item);
+
+        //console.log(item);
+        var doGather = false;
+        try { doGather = (item.mark.def.description.datasource == "r_default_lmLine") } catch(e) {};
+        if (doGather) Shiny.historyManager().gatherValueOverEditSequence();
+
         if (item.dragx || item.dragy) {        // this is an item the user can drag
           var handleSize = 6;
           var handle = lively.morphic.Morph.makePolygon(
@@ -602,6 +635,7 @@ oneTimeInitShinyGgvis = function() {
           var yColumn = handle.ySpec ? handle.ySpec.column : "-";
           // dragging in cells is indicated by "tablecell" scale
           if (xScale == "tablecell") {
+            this.dragCell = item._element;
             handle.dragStartValue = item.value;
             var chartWidth = 600;  // ought to look it up
             handle.convertEvtPoint = function(evtPos) { return pt(Math.min(100, Math.max(0, Math.round(handle.dragStartValue + (evtPos.x - handle.dragStartPos.x)*100/(0.33*chartWidth)))), -1000) };
@@ -655,7 +689,7 @@ oneTimeInitShinyGgvis = function() {
           handle.onKeyUp = (function onKeyUp(evt) {
             if (evt.getKeyCode() === Event.KEY_ALT) {
               Shiny.historyManager().addValueDragItem(this.chart, this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint);
-              Shiny.historyManager().setUpSweep();
+              Shiny.historyManager().selectLastItemForSweep();
               evt.stop();
               return false;
             }

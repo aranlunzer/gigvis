@@ -110,6 +110,10 @@ as.vega.mark <- function(mark) {
     properties$highlight <- as.vega(props(fill:="orange"))$update
     properties$scenarioHighlight <- as.vega(props(fillOpacity:=0.75))$update
   }
+  if (mark$type == "line") {
+    # as.vega.ggvis_props() defaults to attaching "update" to all properties
+    properties$highlight <- as.vega(props(stroke:="orange", strokeWidth:=4))$update
+  }
   # ael: provide a default faded "enter" on symbol and line marks
   if (is.null(properties$enter) && (mark$type == "symbol" || mark$type == "line")) {
     properties$enter <- as.vega(props(opacity:=0.25))$update
