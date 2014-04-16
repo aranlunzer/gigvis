@@ -105,19 +105,21 @@ as.vega.mark <- function(mark) {
   # supplied properties will include some or all of update, enter, exit, hover
   properties <- as.vega(props)
   properties$ggvis <- list()
-  if (mark$type == "symbol" || mark$type == "rect") {
+  if (mark$type == "symbol") {
     # as.vega.ggvis_props() defaults to attaching "update" to all properties
     properties$highlight <- as.vega(props(fill:="orange"))$update
-    properties$scenarioHighlight <- as.vega(props(fillOpacity:=0.75))$update
-  }
-  if (mark$type == "line") {
-    # as.vega.ggvis_props() defaults to attaching "update" to all properties
+    properties$scenarioHighlight <- as.vega(props(fill:="#00FFFF"))$update
+  } else if (mark$type == "rect") {
+    properties$highlight <- as.vega(props(fill:="orange"))$update
+    properties$scenarioHighlight <- as.vega(props(fillOpacity:=0.7))$update
+  } else if (mark$type == "line") {
     properties$highlight <- as.vega(props(stroke:="orange", strokeWidth:=4))$update
+    properties$scenarioHighlight <- as.vega(props(stroke:="#00FFFF", strokeWidth:=4))$update
   }
   # ael: provide a default faded "enter" on symbol and line marks
-  if (is.null(properties$enter) && (mark$type == "symbol" || mark$type == "line")) {
-    properties$enter <- as.vega(props(opacity:=0.25))$update
-  }
+  #if (is.null(properties$enter) && (mark$type == "symbol" || mark$type == "line")) {
+  #  properties$enter <- as.vega(props(opacity:=0.25))$update
+  #}
   # ael: add description, which is now partially replicated by the "from" annotation
   description <- list()
   if (!is.null(sharedProvenance)) {

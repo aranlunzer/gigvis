@@ -15,6 +15,7 @@ oneTimeInitShinyGgvis = function() {
   // ensure that each value (e.g., message) is different from the previous one.
   // NB: assumes message has NOT yet been JSONised.
   Shiny.timestampedOnInputChange = function(name, messageObj) {
+    //console.log(JSON.stringify($.extend(messageObj, { timestamp: new Date().getTime() })));
     Shiny.onInputChange(name, JSON.stringify($.extend(messageObj, { timestamp: new Date().getTime() })));
   }
   Shiny.chartNamed = function(chartName) {
@@ -333,15 +334,17 @@ oneTimeInitShinyGgvis = function() {
         return charts;
       }
 
+      function firstDataItem(d) { return (d instanceof Array && d[0]) || d }
+
       function allMarkableElements(chart) {
         // ael: return a d3 selection with all svg elements that can be marked, within a given chart
-        return d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows });
+        return d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && firstDataItem(d).hasOwnProperty("datarows") });
       }
 
       function allMarkableItems(chart) {
         // ael: return a collection of all vega-level items that can be marked, within a given chart
         var matches = [];
-        allMarkableElements(chart)[0].each(function(el) { matches.push(el.__data__) });
+        allMarkableElements(chart)[0].each(function(el) { matches.push(firstDataItem(el.__data__)) });
         // d3.select(chart._el).selectAll("svg.marks rect, svg.marks path, svg.marks tr").filter(function(d) { return d && d.datarows })[0].each(function(el) { matches.push(el.__data__) });
         // console.log("allMarkableItems: ", matches.length);
         return matches
@@ -376,17 +379,19 @@ oneTimeInitShinyGgvis = function() {
         if (p != -1) data_id = data_id.substr(0, p);
         
         var matches = [];
-        // allMarkableElements returns just items that have a datarows member
-        allMarkableElements(chart).filter(function(d) { return d.mark.def.description.datasource.indexOf(data_id) == 0; })[0].each(function(el) {
-          var item = el.__data__;
-          parsedDataRows(item).some(function(thisID) {
-            if (rownumbers.indexOf(thisID) >= 0) {
-              matches.push(item);
-              return true;
-            } else { return false; }
-          })
+        // allMarkableItems returns just items that have a datarows member.  for some marks that don't specifically correspond to a subset of the data rows we attach an empty datarows array.
+        allMarkableItems(chart).each(function(item) {
+          if (item.mark.def.description.datasource.indexOf(data_id) == 0) {
+            parsedDataRows(item).some(function(thisID) {
+              if (rownumbers.indexOf(thisID) >= 0) {
+                matches.push(item);
+                return true;
+              } else { return false; }
+            })
+          }
         })
         // console.log(matches);
+        if (matches.length==0) matches.push(item);
         return matches;
       }
 
@@ -395,6 +400,7 @@ oneTimeInitShinyGgvis = function() {
         allMarkableItems(chart).forEach(function(item) {
           if (item.scenario == touchedScenario) matches.push( item );
         });
+        // console.log(matches);
         return matches;
       }
 
@@ -441,7 +447,7 @@ oneTimeInitShinyGgvis = function() {
       chart.dragItem = null;
       chart.on("mouseover", (function(evt, item) {
         // NB: this is not a morphic event - so to look at the position, use pageX & pageY
-        if (this.dragItem) return;
+        if (this.dragItem || this.dragCell) return;
         
         // look for some scenario highlighting to do
         var touchedScenario = item.scenario;
@@ -450,39 +456,25 @@ oneTimeInitShinyGgvis = function() {
             ch.update({ props: "update", items: allMarkableItems(ch) });
             ch.update({ props: "scenarioHighlight", items: scenarioItems(ch, touchedScenario) });
           });
+          Shiny.historyManager().highlightHistoryPseudoIndex(touchedScenario);
+
           // DISABLED: code to sort all scenario marks so the touched one is guaranteed to be on top.  Using this function messed something up, preventing cleanup of the marks.  Might now be fixed for marks that use non-index keys for their elements.
           //d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
+
         } else if (item.datarows) {
           // hack that used to let us disable brushing on main-scenario histogram when scenarios are being shown:
           //   && !(item.mark.marktype == "rect" && scenarioMarks.length > 0)
           allCharts().forEach(function(ch) {
             ch.update({ props: "highlight", items: relatedItems(ch, item) })
           });
-        }
-        
-        // hack: for lmLine demo, look explicitly for the line items
-        try {
-          if (item.mark.def.description.datasource == "r_default_lmLine") {
-            chart.update({ props: "highlight", items: [item]});
-          }
-          if (item.mark.def.description.datasource == "r_sweep_lmLine") {
-            chart.update({ props: "highlight", items: [item]});
-            Shiny.historyManager().flashHistoryPseudoIndex(item.scenario);
-          }
-
-        }
-        catch(e) {};
+        }        
       }).bind(chart));
 
       function restoreAllMarks() {
           allCharts().forEach(function(ch) {
             ch.update({ props: "update", items: allMarkableItems(ch) });
-
-            // hack to clear highlighting on paths such as lmLine
-            var lineItems = [];
-            d3.select(ch._el).selectAll("svg.marks path").each(function(d) { if (d instanceof Array && d[0].hasOwnProperty("datarows")) { lineItems.push(d[0]) } });
-            if (lineItems.length>0) ch.update({ props: "update", items: lineItems });
           });
+          Shiny.historyManager().highlightHistoryPseudoIndex(-1);
       }
       
       chart.highlightDragItems = (function () {
@@ -510,8 +502,12 @@ oneTimeInitShinyGgvis = function() {
         if (this.lastMouseWasDrag) { // ensure it was a drag, not just a click
           Shiny.historyManager().addValueDragItem(this, xSpec, ySpec, row, dragPositions, pointConverter);
         
-          if (dragType == "jog") Shiny.historyManager().startJog()
-          else if (dragType == "sweep") Shiny.historyManager().selectLastItemForSweep();
+          if (dragType == "jog") {
+            Shiny.historyManager().startJog()
+            // make sure the view has keyboard focus, to allow Escape to stop the jog
+            chart.viewDivObj.focus();
+          }
+          else if (dragType == "sweep") Shiny.historyManager().selectItemForSweep();
         }  
       }).bind(chart);
 
@@ -549,8 +545,7 @@ oneTimeInitShinyGgvis = function() {
       
       chart.on("mouseout", (function(evt, item) {
         if (this.dragItem) return;
-        // hack: "scenario" put in to catch lmLine for demo
-        if (item.datarows || item.hasOwnProperty("scenario")) restoreAllMarks();
+        if (item.datarows) restoreAllMarks();
       }).bind(chart));
 
       chart.on("click", (function(evt, item) {  // NB: non-morphic event
@@ -565,8 +560,12 @@ oneTimeInitShinyGgvis = function() {
           manager.endJogThenDo(function() {
             manager.addPerturbationItem(self, item, dataRowOrRole(item));
 
-            if (clickType=="jog") manager.startJog();
-            else setTimeout(manager.selectLastItemForSweep.bind(manager), 1);
+            if (clickType=="jog") {
+              manager.startJog();
+              // make sure the view has keyboard focus, to allow Escape to stop the jog
+              chart.viewDivObj.focus();
+            }
+            else manager.selectItemForSweep();
             });
         }
       }).bind(chart));
@@ -600,6 +599,7 @@ oneTimeInitShinyGgvis = function() {
 
         //console.log(item);
         var doGather = false;
+        // DEMO HACK
         try { doGather = (item.mark.def.description.datasource == "r_default_lmLine") } catch(e) {};
         if (doGather) Shiny.historyManager().gatherValueOverEditSequence();
 
@@ -689,7 +689,7 @@ oneTimeInitShinyGgvis = function() {
           handle.onKeyUp = (function onKeyUp(evt) {
             if (evt.getKeyCode() === Event.KEY_ALT) {
               Shiny.historyManager().addValueDragItem(this.chart, this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint);
-              Shiny.historyManager().selectLastItemForSweep();
+              Shiny.historyManager().selectItemForSweep();
               evt.stop();
               return false;
             }
@@ -708,7 +708,7 @@ oneTimeInitShinyGgvis = function() {
             Shiny.buildAndSendMessage("command", [ "endEdit", { dataset: this.dataset } ]);
             
             this.remove();
-            var evt = Global.event;          // hack?
+            var evt = Global.LastEvent;
             var dragType = null;
             if (evt.isShiftDown()) dragType = "jog";
             else if (evt.isAltDown()) dragType = "sweep";

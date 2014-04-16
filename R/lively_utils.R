@@ -1,8 +1,12 @@
 #debugLog <- function(message) { if (lg_debug && !isTRUE(getOption("shiny.localServer"))) write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
 debugLog <- function(message) {
-  if (lg_debug && !isTRUE(getOption("shiny.localServer"))) {
-    if (is.null(debugLogFile)) debugLogFile <<- file("lively_r_log", "a", blocking=FALSE)
-    write(paste0(Sys.time(),": ", message), file=debugLogFile)
+  if (lg_debug) {
+    if (isTRUE(getOption("shiny.localServer"))) {
+      write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE)
+    } else {
+      if (is.null(debugLogFile)) debugLogFile <<- file("lively_r_log", "a", blocking=FALSE)
+      write(paste0(Sys.time(),": ", message), file=debugLogFile)
+    }
   }
 }
       
@@ -20,15 +24,16 @@ resetReactLog <- function() {
 startControlServer <- function() {
   library(httpuv)
   library(shiny)
-  library(RJSONIO)
+
   options(shiny.withlively=TRUE)
   options(shiny.localServer=TRUE)
   evalInGlobalEnv = function(str) {
     # do in the global environment
     eval(parse(text=str), envir=globalenv())
   }
-  evalInGlobalEnv('lg_debug = TRUE; debugLogFile = NULL')  
-  
+  evalInGlobalEnv('lg_debug = FALSE')  
+
+
   outerServerRunning <- TRUE
   while (outerServerRunning) {
     outerServerRunning <- runControlServer()
@@ -477,8 +482,31 @@ update_sweepReactive <- function(name, value, log=FALSE) {
 
 resetSweep <- function() {
   setupNewSweep(0)
-  # for now, also reset edits and ranges in default
-  for (resettable in gvStatics$resettables) gvDefault[[resettable]] <- list()
+  # used to also reset edits and ranges in default
+  #for (resettable in gvStatics$resettables) gvDefault[[resettable]] <- list()
+}
+
+resetHistorySweep <- function(session) {
+  # HACK!! for demo
+  data_content <- bindSweepSplitDFs(list(), "stroke", list(stroke="black"))
+  #debugLog(capture.output(print(data_content)))
+  chartId = "plot1"
+  data_name <- "r_sweep_lmLine" 
+  dataName <- paste0(data_name, "_tree")
+  dataValue <- list(list(
+    name = dataName,
+    format = list(type = "treejson"),
+    values = list(children = lapply(data_content, function(x) list(children = df_to_json(x))))
+  ))
+  valueList <- list()
+  valueList[[dataName]] <- dataValue
+  
+  duration <- 0
+  session$sendCustomMessage("ggvis_lively_data", list(      # use most recently supplied session
+    chartId = chartId,
+    duration = duration,
+    valueList = valueList
+  ))
 }
 
 setupNewSweep <- function(numScenarios) {
@@ -544,7 +572,7 @@ bindSweepSplitDFs <- function(dfs, colourProperty, requiredCols=list()) {
     # so iterate through the dfs, updating all their pieces and gathering them into one.
     dfColouredPieces <- lapply(1:length(dfs), function(index) {
                               # when not a standard sweep, make all the lines blue
-                              colour <- if (gvStatics$iterating) "#0000FF" else gvStatics$scenarioColours[[scen]]
+                              colour <- if (gvStatics$iterating) "#0000FF" else gvStatics$scenarioColours[[index]]
                               pieces <- dfs[[index]]     # one split_df, with indexable pieces
                               scenario <- if (gvStatics$iterating) pieces[[1]][1,"scenario"] else index
                               lapply(1:length(pieces), function(pi) {
@@ -767,17 +795,14 @@ setXYDataStatics <- function(workingData, xProp, yProp, wantSDs) {
   update_static("maxY", gvStatics$baseRanges[[yProp]][[2]])
   update_static("popupYRange", gvStatics$maxY*1.2)
   
-  xMean <- xLowSD <- xHighSD <- NA
+  xMean <- xSD <- NA
   if (wantSDs && nrow(workingData)>1) {
     xCol <- workingData[[xProp]]
     xSD <- sd(xCol)
     xMean <- mean(xCol)
-    xLowSD <- xMean - xSD
-    xHighSD <- xMean + xSD
   }
   update_static("xMean", xMean)
-  update_static("xLowSD", xLowSD)
-  update_static("xHighSD", xHighSD)
+  update_static("xSD", xSD)
 }
 
 axisSpec <- function(specs) {
@@ -814,7 +839,9 @@ xSDLines <- function() {
   else {
     topY <- gvStatics$maxY * 1.1
     df <- NULL
-    df$chartx <- c(gvStatics$xLowSD, gvStatics$xLowSD, gvStatics$xHighSD, gvStatics$xHighSD)
+    xLowSD <- gvStatics$xMean - gvStatics$xSD
+    xHighSD <- gvStatics$xMean + gvStatics$xSD
+    df$chartx <- c(xLowSD, xLowSD, xHighSD, xHighSD)
     df$charty <- c(0, topY, 0, topY)
     df$grouping <- c(1, 1, 2, 2)
     df$strokeDash <- rep("2,8", 4)
@@ -860,10 +887,10 @@ scatterPlotWithSweep <- function() {
   defMask <- isolate(gvDefault$workingDataMask)
   if (isolate(gvSwitches$showXSDLines)) {
     if (!is.na(gvStatics$xMean)) {  # if there are enough data rows to define mean & SD
-      lowSD <- gvStatics$xLowSD
-      highSD <- gvStatics$xHighSD
+      xLowSD <- gvStatics$xMean - gvStatics$xSD
+      xHighSD <- gvStatics$xMean + gvStatics$xSD
       scatterXCol <- scatterDF[[xProp]]
-      coreMask <- scatterXCol>=lowSD & scatterXCol<=highSD
+      coreMask <- scatterXCol>=xLowSD & scatterXCol<=xHighSD
       scatterDF$dotColour <- ifelse(coreMask, fullColour, paleColour)
     } else scatterDF$dotColour <- paleColour  # there aren't
   } else scatterDF$dotColour <- fullColour
@@ -1111,23 +1138,25 @@ reapplyState <- function(state, switches, edits) {
 
 handleTriggerMessage <- function(msg, session) {
   # a new value on either of our trigger reactives is a command, or perhaps a set of commands
-  gvStatics$plotUpdateDuration <<- 0        # default
   #debugLog(capture.output(print(msg)))
   args <- msg$args
-  annotations <- msg$annotations
-  gvStatics$historyPseudoIndex <<- if (is.null(annotations)) NULL else annotations$historyPseudoIndex
-  instant <- args[["instant"]]              # for now, only compoundCommand messages have this argument
-  if (is.null(instant)) instant <- FALSE
+  gvStatics$plotUpdateDuration <<- 0    # default; may be overridden by the command, and again in annotations
   if (msg$message=="compoundCommand") {
     commands <- args[["commands"]]
     debugLog(paste0("compound command (", length(commands), ")"))
-    for (cmdMsg in commands) handleCommand(cmdMsg, instant)
-  } else handleCommand(msg, instant)
+    for (cmdMsg in commands) handleCommand(cmdMsg, session)
+  } else handleCommand(msg, session)
+  gvStatics$historyPseudoIndex <<- NULL
+  annotations <- msg$annotations
+  if (!is.null(annotations)) {
+    if (!is.null(annotations$historyPseudoIndex)) gvStatics$historyPseudoIndex <<- annotations$historyPseudoIndex
+    if (!is.null(annotations$plotUpdateDuration)) gvStatics$plotUpdateDuration <<- annotations$plotUpdateDuration
+  }    
 }
 
-handleCommand <- function(msg, forceInstantaneous=FALSE) {
-  standardUpdate <- if (forceInstantaneous) 0 else 300
-  fastUpdate <- if (forceInstantaneous) 0 else 200
+handleCommand <- function(msg, session) {
+  standardUpdate <- 300
+  fastUpdate <- 200
   debugLog(paste0("-------- command from JS: ", msg$message, " ---------"))
   command <- msg$message
   args <- msg$args
@@ -1158,6 +1187,8 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
     visitScenario(args[["scenario"]])
   } else if (command == "resetSweep") {
     resetSweep()
+  } else if (command == "resetHistorySweep") {
+    resetHistorySweep(session)    # HACK
   } else if (command == "suppressEdits") {
     # only act if there are some edits to suppress
     if (length(isolate(gvDefault$workingDataEdits))>0 || length(isolate(gvDefault$workingDataRanges))>0) {
@@ -1198,7 +1229,7 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
     #debugLog(capture.output(print(args)))
     type <- args$type
     target <- args$target            # string or list
-    scenarios <- args$scenarios
+    scenarios <- unlist(args$scenarios)  # encoded in JS as an array of integers; converted to a list in the JSON transfer
     numEditScenarios <- length(scenarios)
     values <- args$values            # collection of strings, or of two-place collections
     if (type == "data") {
@@ -1221,7 +1252,7 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
         editMLSweep <- isolate(gvSweep[[dataset]])
       }
       # construct mList entry `row`: column=value
-      for (si in 1:length(scenarios)) {
+      for (si in 1:numEditScenarios) {
         scen <- scenarios[[si]]
         mList <- if (scen==0) editML else editMLSweep[[scen]]
         xyvalues <- as.numeric(values[[si]])
@@ -1283,12 +1314,6 @@ handleCommand <- function(msg, forceInstantaneous=FALSE) {
       }
     }
   } else if (command == "revisitState") {
-    if (isTRUE(args[["majorUpdate"]])) {
-      # make this a synched update
-      refreshChart("plot1")
-      refreshChart("plot2")
-      gvStatics$plotUpdateDuration <<- fastUpdate
-    }
     reapplyState(args[["state"]], args[["switches"]], args[["edits"]])
   } else debugLog("********* unknown command *********")
 }
