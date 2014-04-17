@@ -720,9 +720,9 @@ range_controls <- function(workingData, rangeML) {
     if (nrow(workingData)==0) return(list(range=c(-100,-100), edited=c(FALSE,FALSE)))
 
     lowPercent <- rangeML[["1"]][[property]]    # or NULL (including if rangeML is empty)
-    low <- if (is.null(lowPercent)) NA else mapDataRangePercent(property, lowPercent)
+    low <- if (is.null(lowPercent) || identical(lowPercent,0)) NA else mapDataRangePercent(property, lowPercent)
     highPercent <- rangeML[["2"]][[property]]   # or NULL
-    high <- if (is.null(highPercent)) NA else mapDataRangePercent(property, highPercent)
+    high <- if (is.null(highPercent) || identical(highPercent, 100)) NA else mapDataRangePercent(property, highPercent)
     rangeSetting <- c(low, high)
     edited <- !is.na(rangeSetting)
     workingRange <- range(workingData[[property]])
@@ -1320,8 +1320,10 @@ handleCommand <- function(msg, session) {
 
 
 harvestIterationResult <- function(session) {
-  # HACK: currently hard-coded to extract default_lmLine and add it to a special sweep_lmLine
-  
+  # HACK: currently hard-coded to extract default_lmLine and add it to a special sweep_lmLine.
+  # we also send the data directly, completely bypassing the normal data-sending watchers (which are
+  # disabled while iteration is happening).
+
   if (!is.null(gvStatics$historyPseudoIndex)) {
     soFar <- gvStatics$iterationResults
     latestResult <- isolate(gvDefault$lmLine)

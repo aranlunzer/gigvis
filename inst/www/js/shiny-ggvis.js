@@ -25,8 +25,10 @@ oneTimeInitShinyGgvis = function() {
     return lively.morphic.World.current().get("LivelyRHistory")
   }
   Shiny.livelyMessageQueue = [];
+  Shiny.initialPlotState = null;
 
   Shiny.addCustomMessageHandler("ggvis_lively_quiescent", function(message) {
+    if (!Shiny.initialPlotState) Shiny.initialPlotState = message.plotState;  // first time since chart init
     Shiny.latestPlotState = message.plotState;
     var queue = Shiny.livelyMessageQueue;
     if (!queue.length) { console.log("Unexpected quiescence message"); return }
@@ -427,7 +429,7 @@ oneTimeInitShinyGgvis = function() {
         // console.log(evt.keyCode);
         if (evt.keyCode === Event.KEY_ESC) {
           //if (debug) console.log("ESCAPE");
-          Shiny.historyManager().endJog();
+          Shiny.historyManager().endJogThenDo();
           return false;
         }
         if (evt.keyCode === Event.KEY_TAB) {
@@ -447,8 +449,8 @@ oneTimeInitShinyGgvis = function() {
       chart.dragItem = null;
       chart.on("mouseover", (function(evt, item) {
         // NB: this is not a morphic event - so to look at the position, use pageX & pageY
-        if (this.dragItem || this.dragCell) return;
-        
+        if (this.dragItem) return;   // (dragItem is also set when dragging in a cell)
+
         // look for some scenario highlighting to do
         var touchedScenario = item.scenario;
         if (touchedScenario) {  // won't trigger on scenario 0, which is probably fine...?
@@ -501,14 +503,21 @@ oneTimeInitShinyGgvis = function() {
         
         if (this.lastMouseWasDrag) { // ensure it was a drag, not just a click
           Shiny.historyManager().addValueDragItem(this, xSpec, ySpec, row, dragPositions, pointConverter);
-        
+
           if (dragType == "jog") {
             Shiny.historyManager().startJog()
             // make sure the view has keyboard focus, to allow Escape to stop the jog
             chart.viewDivObj.focus();
-          }
-          else if (dragType == "sweep") Shiny.historyManager().selectItemForSweep();
+          } else if (dragType == "sweep") Shiny.historyManager().selectItemForSweep();
         }  
+      }).bind(chart);
+
+      chart.localPointToGlobal = (function (localPt) {
+        var chartRect = $(this._el).bounds();
+        var padding = this.padding();
+        chartTop = chartRect.top + padding.top;
+        chartLeft = chartRect.left + padding.left;
+        return pt(localPt.x+chartLeft, localPt.y+chartTop);
       }).bind(chart);
 
       chart.toChartCoords = (function (evtPt, absolute, xScale, yScale) {
@@ -557,16 +566,13 @@ oneTimeInitShinyGgvis = function() {
         if (clickType) {         // a raw click does nothing
           var self = this;
           var manager = Shiny.historyManager();
-          manager.endJogThenDo(function() {
-            manager.addPerturbationItem(self, item, dataRowOrRole(item));
+          manager.addPerturbationItem(self, item, dataRowOrRole(item));
 
-            if (clickType=="jog") {
-              manager.startJog();
-              // make sure the view has keyboard focus, to allow Escape to stop the jog
-              chart.viewDivObj.focus();
-            }
-            else manager.selectItemForSweep();
-            });
+          if (clickType=="jog") {
+            manager.startJog();      // on the newly added item; includes ending any previous jog
+            // make sure the view has keyboard focus, to allow Escape to stop the jog
+            chart.viewDivObj.focus();
+          } else manager.endJogThenDo(manager.selectItemForSweep.bind(manager));
         }
       }).bind(chart));
       
@@ -598,20 +604,18 @@ oneTimeInitShinyGgvis = function() {
         //      1 -> { dataset: "workingData", column: "mpg", row: 6, value: 15 }
 
         //console.log(item);
-        var doGather = false;
         // DEMO HACK
+        var doGather = false;
         try { doGather = (item.mark.def.description.datasource == "r_default_lmLine") } catch(e) {};
         if (doGather) Shiny.historyManager().gatherValueOverEditSequence();
 
         if (item.dragx || item.dragy) {        // this is an item the user can drag
-          var handleSize = 6;
+          var handleSize = 8;
           var handle = lively.morphic.Morph.makePolygon(
-                [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize), pt(0,0)], 2, Color.black, Color.black);
+                [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize), pt(0,0)], 3, Color.black, Color.black);
 
           this.dragItem = item;
           this.lastMouseWasDrag = false;
-          handle.dragStartPos = handle.lastDragPos = evt.getPosition();
-          handle.dragPositions = [handle.dragStartPos];
           handle.itemRow = dataRowOrRole(item);
           handle.chart = this;
           
@@ -633,6 +637,7 @@ oneTimeInitShinyGgvis = function() {
           var yScale = handle.ySpec && handle.ySpec.scale;
           var xColumn = handle.xSpec ? handle.xSpec.column : "-";
           var yColumn = handle.ySpec ? handle.ySpec.column : "-";
+          var itemStartPosition = evt.getPosition();  // though this will be refined for on-chart items
           // dragging in cells is indicated by "tablecell" scale
           if (xScale == "tablecell") {
             this.dragCell = item._element;
@@ -640,17 +645,22 @@ oneTimeInitShinyGgvis = function() {
             var chartWidth = 600;  // ought to look it up
             handle.convertEvtPoint = function(evtPos) { return pt(Math.min(100, Math.max(0, Math.round(handle.dragStartValue + (evtPos.x - handle.dragStartPos.x)*100/(0.33*chartWidth)))), -1000) };
           } else {
+            // if we use evt.getPosition() as the start of the drag on a chart item, it will be 
+            // offset from the coord of the item being dragged.
+            itemStartPosition = this.localPointToGlobal(pt(item.x, item.y));
             handle.convertEvtPoint = function(evtPos) { return handle.chart.toChartCoords(evtPos, true, xScale, yScale) };
           }
+          handle.dragStartPos = handle.lastDragPos = itemStartPosition;
+          handle.dragPositions = [handle.dragStartPos];
           handle.dragToPoint = function(evtPos) { 
             Shiny.buildAndSendMessage("data", [ handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [handle.convertEvtPoint(evtPos)] ])
-            //Shiny.sendEditMessage(handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [handle.convertEvtPoint(evtPos)])
           };
 
           // handle.onFocus = function() { console.log("handle focus") }
           // handle.onBlur = function() { console.log("handle blur") }
           
           handle.throttledDragHandler = Functions.throttle((function(evt) {
+            this.lastDragEvent = evt;
             var evtPos = evt.getPosition();
             this.lastDragPos = evtPos;
             this.dragPositions.push(evtPos);
@@ -674,12 +684,13 @@ oneTimeInitShinyGgvis = function() {
               // couldn't figure out whether there's a combination of stopPropagation etc
               // to allow the tab press to appear to onKeyPress.  So we deal with it here.
               // console.log("handle tab");
-              Shiny.visitNextScenario(evt.isShiftDown() ? -1 : 1);
+              Shiny.historyManager().visitNextScenario(evt.isShiftDown() ? -1 : 1);
               evt.stop();
               return false;
             } else if (keyCode === Event.KEY_ALT || keyCode === Event.KEY_SHIFT) {
               // console.log("handle alt...");
               // Pressing alt or shift during a drag deletes all but the last recorded drag position.  But later releasing shift does nothing, whereas releasing alt immediately uses the positions up to then as a sweep.
+              if (keyCode === Event.KEY_ALT) this.setBorderColor(Color.red);
               this.dragPositions = [this.dragPositions.last()];
               evt.stop();
               return false;
@@ -687,7 +698,9 @@ oneTimeInitShinyGgvis = function() {
           }).bind(handle);
 
           handle.onKeyUp = (function onKeyUp(evt) {
-            if (evt.getKeyCode() === Event.KEY_ALT) {
+            // *** early setup of sweep is currently disabled *** 
+            if (false && evt.getKeyCode() === Event.KEY_ALT) {
+              this.setBorderColor(Color.black);
               Shiny.historyManager().addValueDragItem(this.chart, this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint);
               Shiny.historyManager().selectItemForSweep();
               evt.stop();
@@ -708,10 +721,11 @@ oneTimeInitShinyGgvis = function() {
             Shiny.buildAndSendMessage("command", [ "endEdit", { dataset: this.dataset } ]);
             
             this.remove();
-            var evt = Global.LastEvent;
             var dragType = null;
+            var evt = this.lastDragEvent;
             if (evt.isShiftDown()) dragType = "jog";
             else if (evt.isAltDown()) dragType = "sweep";
+            console.log(dragType, evt);
             this.chart.endDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint, dragType);
           }).bind(handle);
           
@@ -1073,6 +1087,7 @@ oneTimeInitShinyGgvis = function() {
   refreshShinyGgvis = function() {
     // The user is throwing away the existing chart(s) and building anew. 
     Shiny.livelyMessageQueue = [];
+    Shiny.initialPlotState = null;
     Shiny.propLatest = { x: null, y: null };
     Shiny.propHistory = { x: null, y: null };
     delete Shiny.lastColumnHighlight;
