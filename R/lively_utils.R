@@ -1160,8 +1160,11 @@ handleCommand <- function(msg, session) {
   debugLog(paste0("-------- command from JS: ", msg$message, " ---------"))
   command <- msg$message
   args <- msg$args
-  if (command=="dummy") {
-    # nothing to do; just wait for quiescence
+  if (command=="finishedBuild") {
+    # hack: by setting up an empty list under the name of plot1 we can force sending of axisSpec
+    gvStatics$activeSession <<- session
+    gvStatics$chartDataQueue[["plot1"]] <<- list()
+    # everything else will happen as part of quiescence handling
   } else if (command=="gather") {
     # Rprof("r_profile", memory.profiling=FALSE, interval=0.002)
     gvStatics$iterating <<- TRUE

@@ -26,6 +26,7 @@ oneTimeInitShinyGgvis = function() {
   }
   Shiny.livelyMessageQueue = [];
   Shiny.initialPlotState = null;
+  Shiny.xMin = Shiny.xMax = Shiny.yMin = Shiny.yMax = 0;
 
   Shiny.addCustomMessageHandler("ggvis_lively_quiescent", function(message) {
     if (!Shiny.initialPlotState) Shiny.initialPlotState = message.plotState;  // first time since chart init
@@ -82,15 +83,15 @@ oneTimeInitShinyGgvis = function() {
   }
 
   Shiny.buildDataMessage = function(dataset, xycolumns, row, scenarios, chartPoints) {
-    // edits that arise from dragging chart points
+    // edits that arise from dragging or perturbing chart points
     var args = {};
     args.type = "data";
     args.target = { dataset: dataset, row: row, xycolumns: xycolumns };
     args.scenarios = scenarios;
     args.values = chartPoints.map(function(cp) {
       var xy = ["-1000", "-1000"];
-      if (cp.x) xy[[0]] = cp.x.toFixed(2);
-      if (cp.y) xy[[1]] = cp.y.toFixed(2);
+      if (cp.x) xy[[0]] = cp.x.toPrecision(4);  // cf toFixed(3)
+      if (cp.y) xy[[1]] = cp.y.toPrecision(4);
       return xy;
     });
     return { message: "edit", args: args };
@@ -213,11 +214,8 @@ oneTimeInitShinyGgvis = function() {
     console.log("ggvis_lively_vega_spec", chartId, spec);
 
     buildLivelyChart(spec, chartId, renderer);
-    if (!Shiny.latestPlotState) {
-      // now that we have a plot state that can be shared, schedule a command to ensure it is sent to JS
-      Shiny.latestPlotState = { dummyDuringBuild: true };
-      Shiny.buildAndSendMessage("command", [ "dummy", {} ]);
-    }
+    if (chartId=="plot1") Shiny.buildAndSendMessage("command", [ "finishedBuild", {} ]);
+
     $world.setHandStyle(null);
   });
 
@@ -253,31 +251,8 @@ oneTimeInitShinyGgvis = function() {
           var formattedData = vg.data.read(values, dataSpec.format);
           if (name=="r_default_axisSpec") {
             // special dataset for (re)defining the axes and scales
+            updateAxes(chart, formattedData);
             axesChanged = true;      // NB: in fact we might just be redefining dataMin and dataMax
-            for (var i=0; i<formattedData.length; i++) {
-              var axisSpec = formattedData[i];
-              var scaleName = axisSpec.scale;
-              var axisDef = $.grep(chart.model().defs().marks.axes, function(d) { return d.scale==scaleName})[0];
-              var newTitle = axisSpec.title;
-              var suppress = (newTitle == "");
-              axisDef.title = newTitle;
-              var properties = axisDef.properties || {};
-              var lineColour = (scaleName=="yhist" ? "gray" : "black");
-              var labelColour = (scaleName=="yhist" ? "gray" : "black");
-              if (suppress) lineColour = labelColour = null;
-              properties.axis = { stroke: { value: lineColour } };
-              properties.ticks = { stroke: { value: lineColour }};
-              properties.labels = { fill: { value: labelColour }};
-              axisDef.properties = properties;
-              if (!suppress) {
-                var scaleDef = $.grep(chart.model().defs().marks.scales, function(d) { return d.name==scaleName})[0];
-                var newMax = axisSpec.max;
-                scaleDef.domain[1] = axisSpec.max;
-              }
-              if (axisSpec.dataMin) Shiny[[axisSpec.scale+"Min"]] = axisSpec.dataMin;
-              if (axisSpec.dataMax) Shiny[[axisSpec.scale+"Max"]] = axisSpec.dataMax;
-            }
-          //console.log(Shiny.xMin, Shiny.xMax, Shiny.yMin, Shiny.yMax);
           } else {
             var subData = {};
             subData[name] = formattedData;
@@ -301,6 +276,34 @@ oneTimeInitShinyGgvis = function() {
     }
   });
   
+  function updateAxes(chart, axisData) {
+    // a pretty hacky delve into Vega's encoding for axes
+    for (var i=0; i<axisData.length; i++) {
+      var axisSpec = axisData[i];
+      var scaleName = axisSpec.scale;
+      var axisDef = $.grep(chart.model().defs().marks.axes, function(d) { return d.scale==scaleName })[0];
+      var newTitle = axisSpec.title;
+      var suppress = (newTitle == "");
+      axisDef.title = newTitle;
+      var properties = axisDef.properties || {};
+      var lineColour = (scaleName=="yhist" ? "gray" : "black");
+      var labelColour = (scaleName=="yhist" ? "gray" : "black");
+      if (suppress) lineColour = labelColour = null;
+      properties.axis = { stroke: { value: lineColour } };
+      properties.ticks = { stroke: { value: lineColour }};
+      properties.labels = { fill: { value: labelColour }};
+      axisDef.properties = properties;
+      if (!suppress) {
+        var scaleDef = $.grep(chart.model().defs().marks.scales, function(d) { return d.name==scaleName })[0];
+        var newMax = axisSpec.max;
+        scaleDef.domain[1] = axisSpec.max;
+      }
+      if (axisSpec.dataMin) Shiny[[axisSpec.scale+"Min"]] = axisSpec.dataMin;
+      if (axisSpec.dataMax) Shiny[[axisSpec.scale+"Max"]] = axisSpec.dataMax;
+    }
+  // console.log("updated axes: ", Shiny.xMin, Shiny.xMax, Shiny.yMin, Shiny.yMax);
+  }
+
   function buildLivelyChart(spec, chartId, renderer) {
     // NB: still using the old way of building charts.  ggvis has some new stuff.
     // NB: this is asynchronous.  On return, the chart won't yet have been built.
@@ -429,7 +432,7 @@ oneTimeInitShinyGgvis = function() {
         // console.log(evt.keyCode);
         if (evt.keyCode === Event.KEY_ESC) {
           //if (debug) console.log("ESCAPE");
-          Shiny.historyManager().endJogThenDo();
+          Shiny.historyManager().resetJogAndSweep();
           return false;
         }
         if (evt.keyCode === Event.KEY_TAB) {
@@ -609,13 +612,15 @@ oneTimeInitShinyGgvis = function() {
         try { doGather = (item.mark.def.description.datasource == "r_default_lmLine") } catch(e) {};
         if (doGather) Shiny.historyManager().gatherValueOverEditSequence();
 
+        this.lastMouseWasDrag = false;
+        this.lastDragEvent = null;
+
         if (item.dragx || item.dragy) {        // this is an item the user can drag
           var handleSize = 8;
           var handle = lively.morphic.Morph.makePolygon(
                 [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize), pt(0,0)], 3, Color.black, Color.black);
 
           this.dragItem = item;
-          this.lastMouseWasDrag = false;
           handle.itemRow = dataRowOrRole(item);
           handle.chart = this;
           
@@ -649,6 +654,7 @@ oneTimeInitShinyGgvis = function() {
             // offset from the coord of the item being dragged.
             itemStartPosition = this.localPointToGlobal(pt(item.x, item.y));
             handle.convertEvtPoint = function(evtPos) { return handle.chart.toChartCoords(evtPos, true, xScale, yScale) };
+            console.log("axis defs at drag start: ", Shiny.xMin, Shiny.xMax, Shiny.yMin, Shiny.yMax);
           }
           handle.dragStartPos = handle.lastDragPos = itemStartPosition;
           handle.dragPositions = [handle.dragStartPos];
@@ -723,9 +729,10 @@ oneTimeInitShinyGgvis = function() {
             this.remove();
             var dragType = null;
             var evt = this.lastDragEvent;
-            if (evt.isShiftDown()) dragType = "jog";
-            else if (evt.isAltDown()) dragType = "sweep";
-            console.log(dragType, evt);
+            if (evt) {
+              if (evt.isShiftDown()) dragType = "jog";
+              else if (evt.isAltDown()) dragType = "sweep";
+            }
             this.chart.endDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint, dragType);
           }).bind(handle);
           
