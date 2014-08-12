@@ -27,7 +27,7 @@ ggvis_table <- function(tableDef) {
   structure(tableDef, class = c("ggvis_table", "ggvis_node"))
 }
 
-as.vega.ggvis_table <- function(x, width = 640, height = 420, padding = NULL,
+as.vega.ggvis_table <- function(x, width = 680, height = 420, padding = NULL,
                           session = NULL, dynamic = FALSE, ...) {
   if (is.null(padding)) padding <- padding() # top, right, bottom, left
   # expecting the x argument to be a ggvis_table structure with a single

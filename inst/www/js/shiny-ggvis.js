@@ -18,11 +18,17 @@ oneTimeInitShinyGgvis = function() {
     //console.log(JSON.stringify($.extend(messageObj, { timestamp: new Date().getTime() })));
     Shiny.onInputChange(name, JSON.stringify($.extend(messageObj, { timestamp: new Date().getTime() })));
   }
+  Shiny.chartManager = function() {
+    return lively.morphic.World.current().get("LivelyRManager")
+  }
   Shiny.chartNamed = function(chartName) {
     return $(".ggvis-output#"+chartName).data("ggvisChart")
   }
   Shiny.historyManager = function() {
     return lively.morphic.World.current().get("LivelyRHistory")
+  }
+  Shiny.chartFollower = function() {
+    return lively.morphic.World.current().get("LivelyRFollower")
   }
   Shiny.livelyMessageQueue = [];
   Shiny.initialPlotState = null;
@@ -64,6 +70,8 @@ oneTimeInitShinyGgvis = function() {
   Shiny.buildAndSendMessage = function(type, args, completionFn, channel) {
     // type is "switch", "data", "command", "parameter"
     var message = Shiny.buildMessage(type, args);
+    if (!message.annotations) message.annotations = {};
+    message.annotations.commandIndex = Shiny.historyManager().nextCommandIndex();
     Shiny.sendMessage(message, true, completionFn, channel)
   }
 
@@ -239,6 +247,9 @@ oneTimeInitShinyGgvis = function() {
       dataNames.forEach(function(name) {
         var dataSpec = valueList[name][0];
         var values = dataSpec.values;
+        
+        // if (name.indexOf("smooth")!==-1) console.log(values);
+
         // HUMONGOUS HAIRY HACK for dealing with tree data
         // if there really isn't a cleaner way of doing this, we should add one
         if (values.children) {
@@ -265,14 +276,44 @@ oneTimeInitShinyGgvis = function() {
 
       $world.setHandStyle(null);
 
+      // hacky.  get the history index now, before stuff starts changing.
+      // NB: this doesn't work for updates caused by variation that will then be normalised into
+      // equal steps (because the history entry, and hence the indices, are only created after
+      // the user-driven edit has ended).
+      var historyPseudoIndex = Shiny.historyManager().lookupHistoryPseudoIndex(message.commandIndex);
+      var follower = Shiny.chartFollower();
+
       if (axesChanged) {
         chart.model()._reset.axes = true;
         chart.model().reset();
       }
-      chart.update({duration: message.duration});
+      
+      // because of the sneaky tricks we're playing on Vega, some data replacements won't work
+      // with non-zero duration.  if it fails (typically due to an interpolation error), re-run
+      // as an instant update.
+      var duration = message.duration;
+      var whenDone = function() {
+        if (needsSort) chart.sortScenarioItems();
 
-      if (needsSort) chart.sortScenarioItems();
-      chart.highlightDragItems();
+        // hack for plot1
+        if (follower && chartId == "plot1") follower.chartDataChanged(historyPseudoIndex);
+
+        chart.highlightDragItems();
+
+        };
+      if (duration == 0) {
+        chart.update();
+        whenDone();
+      } else {
+        var doneTimeout = setTimeout(whenDone, duration);
+        try { chart.update({duration: duration}) }
+        catch(e) {
+          clearTimeout(doneTimeout);
+          console.log("Warning: caught interpolation error");
+          chart.update();
+          whenDone();
+          }
+      };
     }
   });
   
@@ -329,6 +370,21 @@ oneTimeInitShinyGgvis = function() {
       chart.viewDivObj = viewDivObj;        // a convenient way to get back to the JS element
 
       chart.update();
+      
+      // replace the update() function with one that copies the results to the follower, a maximum of once per 100ms of associated updates
+      // hack in associating these functions with plot1
+      if (chartId == "plot1") {
+        var oldUpdate = chart.update;
+        var follower = Shiny.chartFollower();
+        if (follower) setTimeout(function() { follower.reset(); follower.chartDataChanged }, 200);  // take the first snapshot
+        chart.update = function(opt) {
+          if (chart.updateAuxTimeout) { clearTimeout(chart.updateAuxTimeout); delete chart.updateAuxTimeout };
+          oldUpdate.call(chart, opt);
+          if (Shiny.chartManager().lastTrackingEvent && (!(opt && opt.duration))) Shiny.chartManager().handleTrackingEvent();
+          var delay = Math.max(((opt && opt.duration) || 0) + 50, 100);
+          if (follower) chart.updateAuxTimeout = setTimeout(follower.chartUpdated.bind(follower), delay);  // presumably it's ok not to delete the timeout property...
+        }
+      }
       
       function allCharts() {
         var charts = [];
@@ -423,7 +479,7 @@ oneTimeInitShinyGgvis = function() {
 
       //viewDivObj.on("blur", function() { if (debug) console.log("div blur") });
       //viewDivObj.on("focus", function() { if (debug) console.log("div focus") });
-      viewDivObj.on("mouseover", function() {
+      viewDivObj.on("mouseover", function(evt) {
         // grab focus if this is a chart that wants it, and there isn't currently a drag
         if (viewDivObj.attr("livelyautofocus")=="true" && !viewDivObj.data("ggvisChart").dragItem) viewDivObj.focus();
       });
@@ -449,22 +505,28 @@ oneTimeInitShinyGgvis = function() {
       //viewDivObj.on("keypress", (function(evt) {
       //}).bind(viewDivObj));
 
+      function highlightScenario(scenario) {
+          allCharts().forEach(function(ch) {
+            ch.update({ props: "update", items: allMarkableItems(ch) });
+            ch.update({ props: "scenarioHighlight", items: scenarioItems(ch, scenario) });
+          });
+          Shiny.historyManager().highlightHistoryPseudoIndex(scenario);
+      }
+      Shiny.highlightScenario = highlightScenario;
+      
       chart.dragItem = null;
-      chart.on("mouseover", (function(evt, item) {
+      chart.mouseoverHandler = function(evt, item) {
         // NB: this is not a morphic event - so to look at the position, use pageX & pageY
         if (this.dragItem) return;   // (dragItem is also set when dragging in a cell)
+        //console.log("chart mouseover", evt);
 
         // look for some scenario highlighting to do
         var touchedScenario = item.scenario;
         if (touchedScenario) {  // won't trigger on scenario 0, which is probably fine...?
-          allCharts().forEach(function(ch) {
-            ch.update({ props: "update", items: allMarkableItems(ch) });
-            ch.update({ props: "scenarioHighlight", items: scenarioItems(ch, touchedScenario) });
-          });
-          Shiny.historyManager().highlightHistoryPseudoIndex(touchedScenario);
+          highlightScenario(touchedScenario);
 
-          // DISABLED: code to sort all scenario marks so the touched one is guaranteed to be on top.  Using this function messed something up, preventing cleanup of the marks.  Might now be fixed for marks that use non-index keys for their elements.
-          //d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
+// DISABLED: code to sort all scenario marks so the touched one is guaranteed to be on top.  Using this function messed something up, preventing cleanup of the marks.  Might now be fixed for marks that use non-index keys for their elements.
+//d3.selectAll(scenarioMarks).sort(function(a,b) { if (a==touchedScenario) { return 1 } else if (b == touchedScenario) { return -1 } else { return 0 } });
 
         } else if (item.datarows) {
           // hack that used to let us disable brushing on main-scenario histogram when scenarios are being shown:
@@ -473,7 +535,16 @@ oneTimeInitShinyGgvis = function() {
             ch.update({ props: "highlight", items: relatedItems(ch, item) })
           });
         }        
-      }).bind(chart));
+      };
+      
+      chart.on("mouseover", chart.mouseoverHandler.bind(chart));
+
+      chart.mouseoutHandler = function(evt, item) {
+        if (this.dragItem) return;
+        if (item.datarows) restoreAllMarks();
+      }.bind(chart);
+
+      chart.on("mouseout", chart.mouseoutHandler);
 
       function restoreAllMarks() {
           allCharts().forEach(function(ch) {
@@ -481,6 +552,7 @@ oneTimeInitShinyGgvis = function() {
           });
           Shiny.historyManager().highlightHistoryPseudoIndex(-1);
       }
+      Shiny.restoreAllMarks = restoreAllMarks;
       
       chart.highlightDragItems = (function () {
           if (this.dragItem && this.dragItem.datarows) {
@@ -555,11 +627,6 @@ oneTimeInitShinyGgvis = function() {
         d3.select(this._el).selectAll("svg.marks rect, svg.marks path").filter(function(d) { return d && (d.scenario!==undefined) && !(d.key.toFixed)}).sort(function(a,b) { return b.scenario-a.scenario } );
       }).bind(chart);
       
-      chart.on("mouseout", (function(evt, item) {
-        if (this.dragItem) return;
-        if (item.datarows) restoreAllMarks();
-      }).bind(chart));
-
       chart.on("click", (function(evt, item) {  // NB: non-morphic event
         if (this.lastMouseWasDrag) return;      // this is just the mouse-up after a drag
 
@@ -632,8 +699,8 @@ oneTimeInitShinyGgvis = function() {
           if (dataset == "guessMList") {
             // HACK
             setTimeout(function() {
-              window.Shiny.shinyapp.sendInput({"showPopup": "TRUE"});
-              $world.get("ShinyGigvisMorph1").popupChartMorph(3);
+              Shiny.shinyapp.sendInput({"showPopup": "TRUE"});
+              Shiny.chartManager().popupChartMorph(3);
             }, 100);    // leave a little time for startEdit
           };
 
@@ -654,11 +721,12 @@ oneTimeInitShinyGgvis = function() {
             // offset from the coord of the item being dragged.
             itemStartPosition = this.localPointToGlobal(pt(item.x, item.y));
             handle.convertEvtPoint = function(evtPos) { return handle.chart.toChartCoords(evtPos, true, xScale, yScale) };
-            console.log("axis defs at drag start: ", Shiny.xMin, Shiny.xMax, Shiny.yMin, Shiny.yMax);
+            //console.log("axis defs at drag start: ", Shiny.xMin, Shiny.xMax, Shiny.yMin, Shiny.yMax);
           }
           handle.dragStartPos = handle.lastDragPos = itemStartPosition;
           handle.dragPositions = [handle.dragStartPos];
-          handle.dragToPoint = function(evtPos) { 
+          handle.dragToPoint = function(evtPos) {
+            Shiny.historyManager().storeCommandAnnotation({ historyString: "non-indexed value" });    // a string guaranteed not to generate a valid history pseudo-index
             Shiny.buildAndSendMessage("data", [ handle.dataset, [xColumn, yColumn], handle.itemRow, [0], [handle.convertEvtPoint(evtPos)] ])
           };
 

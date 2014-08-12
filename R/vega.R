@@ -106,7 +106,7 @@ as.vega.mark <- function(mark) {
   properties <- as.vega(props)
   properties$ggvis <- list()
   if (mark$type == "symbol") {
-    # as.vega.ggvis_props() defaults to attaching "update" to all properties
+    # hacky: as.vega.ggvis_props() defaults to attaching "update" to all properties
     properties$highlight <- as.vega(props(fill:="orange"))$update
     properties$scenarioHighlight <- as.vega(props(fill:="#00FFFF"))$update
   } else if (mark$type == "rect") {
@@ -116,10 +116,17 @@ as.vega.mark <- function(mark) {
     properties$highlight <- as.vega(props(stroke:="orange", strokeWidth:=4))$update
     properties$scenarioHighlight <- as.vega(props(stroke:="#00FFFF", strokeWidth:=4))$update
   }
-  # ael: provide a default faded "enter" on symbol and line marks
-  #if (is.null(properties$enter) && (mark$type == "symbol" || mark$type == "line")) {
-  #  properties$enter <- as.vega(props(opacity:=0.25))$update
-  #}
+  # ael: if there's no 'enter', copy everything from 'update'.
+  # This was added (in June 2014) to ensure that, for example, histogram bars that enter as a result 
+  # of a change in binwidth are initialised properly and therefore don't crash smoothed transitions.
+  # It's not clear how we were surviving without this - or what might break now that it's there.
+  #
+  # One thing that broke was the mark_area associated with the smoothLine (didn't appear at all).
+  # So I removed it for that.
+  if (is.null(properties$enter) && mark$type != "area") {
+    properties$enter <- properties$update
+    properties$enter$opacity$value <- 0
+  }
   # ael: add description, which is now partially replicated by the "from" annotation
   description <- list()
   if (!is.null(sharedProvenance)) {

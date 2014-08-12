@@ -172,9 +172,11 @@ bin.numeric <- function(x, weight = NULL, binwidth = 1, origin = NULL, right = T
   if (is.null(origin) || origin > datamax) {
     breaks <- fullseq(range(x), binwidth, pad = TRUE)
   } else {
-    breaks <- seq(origin, datamax + binwidth, binwidth)
+    # add origin to end value to ensure we always come up with the same number of bins 
+    # (even if last one is guaranteed to be empty).  This might not suit everyone's taste in histograms.
+    breaks <- seq(origin, origin + datamax + binwidth, binwidth)  
   }
-  
+
   # Adapt break fuzziness from base::hist - this protects from floating
   # point rounding errors
   diddle <- 1e-07 * stats::median(diff(breaks))

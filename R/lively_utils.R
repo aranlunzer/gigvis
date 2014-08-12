@@ -9,7 +9,7 @@ debugLog <- function(message) {
     }
   }
 }
-      
+
 alwaysDebugLog <- function(message) { write(paste0(Sys.time(),": ", message), file="lively_r_log", append=TRUE) }
 
 printReactLog <- function() {
@@ -31,7 +31,7 @@ startControlServer <- function() {
     # do in the global environment
     eval(parse(text=str), envir=globalenv())
   }
-  evalInGlobalEnv('lg_debug = FALSE')  
+  evalInGlobalEnv('lg_debug = FALSE')
 
 
   outerServerRunning <- TRUE
@@ -46,7 +46,7 @@ runControlServer <- function() {
   controlPolling <- TRUE
   continue <- TRUE
   evalCode <- NULL
-  
+
   app <- list(
     call = function(req) {
       list(
@@ -72,33 +72,33 @@ runControlServer <- function() {
   debugLog("starting server")
   #runServer("0.0.0.0", port, app, 250)
   server <- startServer("0.0.0.0", port, app)
-  
+
   while (controlPolling) {
     service(50)
     Sys.sleep(0.001)
   }
-  
+
   if (!is.null(evalCode)) {
     debugLog("starting eval")
     eval(parse(text=evalCode))
     debugLog("finished eval")
   }
-  
+
   debugLog(paste0("ending control loop; continue=", continue))
   stopServer(server)
   continue
 }
 
 # from Hadley
-calcmem <- function() { 
-  bit <- 8L * .Machine$sizeof.pointer 
-  if (bit != 32L && bit != 64L) { 
-    stop("Unknown architecture", call. = FALSE) 
-  } 
-  
-  node_size <- if (bit == 32L) 28L else 56L 
-  
-  usage <- gc() 
+calcmem <- function() {
+  bit <- 8L * .Machine$sizeof.pointer
+  if (bit != 32L && bit != 64L) {
+    stop("Unknown architecture", call. = FALSE)
+  }
+
+  node_size <- if (bit == 32L) 28L else 56L
+
+  usage <- gc()
   total <- sum(usage[, 1] * c(node_size, 8)) / (1024 ^ 2)
   paste0(round(total),"MB")
 }
@@ -141,7 +141,7 @@ writeMemoryProfile <- function() {
 provenanceValue <- function(...) {
   # currently not used - and in any case not as useful as it was, since we no longer rebuild the entire
   # visualisation and therefore could only put static values in here.  values in sharedProvenance are
-  # transferred to a mark's description by as.vega.mark()... and of course the description is only 
+  # transferred to a mark's description by as.vega.mark()... and of course the description is only
   # sent with a new visualisation, not on subsequent updates of the datasets.
   parms <- list(...)
   if (FALSE) {
@@ -220,10 +220,10 @@ transform_edit <- function(data, rows, columns, replacement_values){
 
 # ael
 dataBins <- function(data, property, datamax, binwidth, binRelOffset, blended=FALSE) {
-  # "blended" just means turning off the prominence - of the default-scenario histogram.
+  # "blended" just means turning off the prominence of the default-scenario histogram.
   # if there is a histogram sweep, this means making it disappear.  otherwise just lose
   # the outline.
-  # added "datamax" arg throughout computation, to generate bins (empty if nec) across a 
+  # added "datamax" arg throughout computation, to generate bins (empty if nec) across a
   # fixed range.
   if (nrow(data)==0) emptyBins()
   else {
@@ -233,9 +233,8 @@ dataBins <- function(data, property, datamax, binwidth, binRelOffset, blended=FA
     bins$keyField = as.character(1:nrow(bins))
     # NB: strokeWidth and fillOpacity are both ignored on the sweep histograms
     bins$strokeWidth = if (blended) 0 else 1
-    bins$fillOpacity = if (blended &&
-                            (length(isolate(gvSweep$binwidth))>0 || length(isolate(gvSweep$binoffset))>0))
-                          0 else 0.3
+    bins$fillOpacity = if (length(isolate(gvSweep$binwidth))>0 || length(isolate(gvSweep$binoffset))>0) 0
+                          else 0.3
 
     # indices in the bins correspond to the supplied data, which may be a subset.  to allow
     # brushing to work, re-jig to store the original row numbers.
@@ -246,7 +245,7 @@ dataBins <- function(data, property, datamax, binwidth, binRelOffset, blended=FA
         toJSON(lapply(fromJSON(indsJ), function(ind) { originals[[ind]] }), collapse="")
       }))
     }
-    
+
     bins
   }
 }
@@ -256,12 +255,12 @@ resLinesInChartDomain <- function(trialdata, realdata, dataMask, xProp, yProp, g
   # to extract the columns specified as xProp and yProp.
   # the result is returned with chartx, charty columns.
   if (is.null(trialdata) || is.null(realdata)) return(emptyLines());
-  
+
   tempReal <- data.frame(x=realdata[[xProp]], y=realdata[[yProp]])
   tempTrial <- data.frame(x=trialdata$chartx, y=trialdata$charty)
   res <- resLines(tempTrial, tempReal, giveme)
   if (identical(res, NA)) return(emptyLines())
-  
+
   res <- setNames(res, c("chartx", "charty"))
   res$item <- rep(1:nrow(realdata), each=2)
   res$strokeWidth <- 0
@@ -280,7 +279,7 @@ lmLine <- function(realdata, xProp, yProp) {
   slope <- lmRes$coefficients[[2]]
   intercept <- lmRes$coefficients[[1]]
   if (!is.finite(slope) || !is.finite(intercept)) return(emptySplit)  # e.g. if all x values are same
-  
+
   maxX <- max(realdata[[xProp]])
   df <- data.frame(chartx=c(0, maxX*2), charty=c(intercept, intercept+(slope*maxX*2)), stroke=c("red","red"), grouping=c(1,1))
   split_df(df, quote(grouping), env=NULL)
@@ -289,7 +288,7 @@ lmLine <- function(realdata, xProp, yProp) {
 demingLine <- function(realdata, xProp, yProp) {
   # provide a line from x=0 to x=max(x)*2
   if (nrow(realdata)<2) return(emptySplit)
-  
+
   demingRes <- Deming(realdata[[xProp]], realdata[[yProp]])
   slope <- demingRes[["Slope"]]
   intercept <- demingRes[["Intercept"]]
@@ -315,13 +314,12 @@ emptyBins <- function() {
   df
 }
 
-smoothLine <- function(realdata, xProp, yProp, n, se) {
-  # provide a line from x=0 to x=max(x)*2
+smoothLine <- function(realdata, xProp, yProp, n, levelPercent, se) {
   if (nrow(realdata)<3) return(emptySmoothLine())
 
   # for some reason this slows dramatically when number of data rows is below about 6
   df <- compute(
-    transform_smooth(method="loess", n=n, formula=y~x, se=se),
+    transform_smooth(method="loess", level=levelPercent*0.01, n=n, formula=y~x, se=se),
     props(x=prop(as.name(xProp)), y=prop(as.name(yProp))),
     realdata)
   # debugLog(paste(nrow(realdata), time[["elapsed"]], sep=" : "))
@@ -334,12 +332,12 @@ smoothLine <- function(realdata, xProp, yProp, n, se) {
 }
 
 guessMList <- function(data, xProp, yProp) {
-  # if the user switches x or y is switched between columns that have the same range, 
+  # if the user switches x or y is switched between columns that have the same range,
   # guessMList will have the same contents and the guessLine etc won't refresh themselves.
-  # so we now add the property names as a third - dummy - pseudo-row. 
+  # so we now add the property names as a third - dummy - pseudo-row.
   if (nrow(data)==0) return(list(`3`=c(xProp, yProp)))
   xRange <- range(data[[xProp]])
-  yMean <- mean(data[[yProp]]); 
+  yMean <- mean(data[[yProp]]);
   list(`1`=list(chartx=xRange[[1]], charty=yMean),
        `2`=list(chartx=xRange[[2]], charty=yMean),
        `3`=c(xProp, yProp))
@@ -349,7 +347,7 @@ guessLine <- function(guessML) {
   # guessLine is just dots, and we only store one for the default (not for sweep),
   # so no need for it to be a split df
   if (identical(guessML, list())) return(emptyData)
-  
+
   data.frame(chartx=c(guessML[["1"]]$chartx, guessML[["2"]]$chartx),
             charty=c(guessML[["1"]]$charty, guessML[["2"]]$charty))
 }
@@ -406,7 +404,7 @@ rsquaredCurrentAndRange <- function(guessLine, xProp, yProp, data, guessEditRow)
 }
 
 emptyRSquaredRange <- function() {
-  customiseDF(emptyData, list(dotOpacity=0))  
+  customiseDF(emptyData, list(dotOpacity=0))
 }
 
 update_static <- function(name, value, log=FALSE) {
@@ -456,11 +454,12 @@ update_defaultReactive <- function(name, value, log=FALSE) {
   # if we're waiting for a refresh, but the value hasn't changed,
   # also clear the refresh flag now (because we won't be getting a g_l_d message).
   prev <- isolate(gvDefault[[name]])
+  if (log) { debugLog(capture.output(prev)); debugLog(capture.output(value)) }
   changed <- !identical(prev, value)
   if (changed) {
     gvDefault[[name]] <- value
     debugLog(paste0("updated default reactive: ", name))
-    if (log) debugLog(capture.output(value))
+    #if (log) debugLog(capture.output(value))
   }    # else  { debugLog(paste0("no change in default reactive: ", name)) }
 
   # HACK: axisSpec won't be called up explicitly by the chart, so always clear its flag
@@ -491,7 +490,7 @@ resetHistorySweep <- function(session) {
   data_content <- bindSweepSplitDFs(list(), "stroke", list(stroke="black"))
   #debugLog(capture.output(print(data_content)))
   chartId = "plot1"
-  data_name <- "r_sweep_lmLine" 
+  data_name <- "r_sweep_lmLine"
   dataName <- paste0(data_name, "_tree")
   dataValue <- list(list(
     name = dataName,
@@ -500,7 +499,7 @@ resetHistorySweep <- function(session) {
   ))
   valueList <- list()
   valueList[[dataName]] <- dataValue
-  
+
   duration <- 0
   session$sendCustomMessage("ggvis_lively_data", list(      # use most recently supplied session
     chartId = chartId,
@@ -609,7 +608,7 @@ mergeManipulationLists <- function(default, sweep) {
   #  "5"=list(mpg=10, wt=2)
   #  "16"=list(mpg=15, qsec=20)
   # )
-  # here we derive merged lists (default, potentially overridden in a scenario) 
+  # here we derive merged lists (default, potentially overridden in a scenario)
   # for all the supplied sweep scenarios.
   # if there are no edits in the sweep scenarios, sweep will be an empty list.  in that
   # case, provide as many copies of the default as there are scenarios... which may be zero.
@@ -664,7 +663,7 @@ merge_dataRanges <- function(default, sweep) {
   # if there are no range settings in the sweep scenarios, sweep will be an empty list.
   # a range setting is a list with entries   colName=c(low, high)   where low or high
   # (though not both) can be NA.
-  # if the default scenario has a range on mpg, say, it will be inherited by every 
+  # if the default scenario has a range on mpg, say, it will be inherited by every
   # sweep scenario that doesn't explicitly set its own range for mpg.
   lapply(sweep, function(scen) {
     merged <- default
@@ -683,7 +682,7 @@ apply_dataRanges <- function(unfilteredData, rangeML) {
   # unfilteredData is the base data after all relevant edits have been applied.  now apply
   # the ranges (if any) to produce a mask defining which rows of the edited base data
   # are included in the subset from which measures will be calculated.
-  # return the mask.  
+  # return the mask.
   # as of late march 2014, the rangeML is held in terms of percentage points on the current
   # range of the dimension.
   # a rangeML is of the form:
@@ -695,7 +694,7 @@ apply_dataRanges <- function(unfilteredData, rangeML) {
   lows <- rangeML[["1"]]
   highs <- rangeML[["2"]]
   if (length(lows)+length(highs)==0) {
-    rep(TRUE, nrow(unfilteredData)) 
+    rep(TRUE, nrow(unfilteredData))
   } else {
     columnNames <- unique(c(names(lows), names(highs)))
     columnMasks <- lapply(columnNames, function(col) {
@@ -713,10 +712,10 @@ apply_dataRanges <- function(unfilteredData, rangeML) {
 
 range_controls <- function(workingData, rangeML) {
   # workingData is the state of the data after applying edits and range constraints.
-  # provide a four-row dataset with points for indicating, along the axes of the current chart, the  
+  # provide a four-row dataset with points for indicating, along the axes of the current chart, the
   # positions of controls for adjusting min and max.
   rangeAndStatus <- function(property) {
-    # if no data points remain, return a placeholder range that takes the controls off-chart 
+    # if no data points remain, return a placeholder range that takes the controls off-chart
     if (nrow(workingData)==0) return(list(range=c(-100,-100), edited=c(FALSE,FALSE)))
 
     lowPercent <- rangeML[["1"]][[property]]    # or NULL (including if rangeML is empty)
@@ -752,9 +751,9 @@ range_controls <- function(workingData, rangeML) {
 }
 
 range_lines <- function(rangeControls, withAxisLines=FALSE) {
-  # turn the dataset provided by range_controls into a df for showing lines on the 
-  # chart for edited min/max values.  we need two lines for the ranges on the x and y axes (for 
-  # default scenario only), plus up to four more corresponding to the rangeControls rows 
+  # turn the dataset provided by range_controls into a df for showing lines on the
+  # chart for edited min/max values.  we need two lines for the ranges on the x and y axes (for
+  # default scenario only), plus up to four more corresponding to the rangeControls rows
   # for  minX, maxX, minY, maxY
   topX <- gvStatics$maxX * 1.1
   topY <- gvStatics$maxY * 1.1
@@ -782,7 +781,7 @@ range_lines <- function(rangeControls, withAxisLines=FALSE) {
 }
 
 setBaseDataStatics <- function(baseData) {
-  update_static('baseData', baseData); 
+  update_static('baseData', baseData);
   ranges <- list()
   for (col in names(baseData)) ranges[[col]] <- range(baseData[[col]])
   update_static("baseRanges", ranges)
@@ -794,7 +793,7 @@ setXYDataStatics <- function(workingData, xProp, yProp, wantSDs) {
   update_static("standardBin", gvStatics$maxX*0.1)
   update_static("maxY", gvStatics$baseRanges[[yProp]][[2]])
   update_static("popupYRange", gvStatics$maxY*1.2)
-  
+
   xMean <- xSD <- NA
   if (wantSDs && nrow(workingData)>1) {
     xCol <- workingData[[xProp]]
@@ -809,7 +808,7 @@ axisSpec <- function(specs) {
   # specs is a list where each named element has properties title and max, or null if
   # the axis is to be suppressed.
   # produce a data frame with columns scale, title, min (currently always 0), max (supplied)
-  scales <- titles <- mins <- maxs <- dataMins <- dataMaxs <- NULL 
+  scales <- titles <- mins <- maxs <- dataMins <- dataMaxs <- NULL
   for (scaleName in names(specs)) {
     spec <- specs[[scaleName]]
     scales <- c(scales, scaleName)
@@ -858,7 +857,10 @@ scatterPlotWithSweep <- function() {
   fullOpacity <- 0.8
   reducedOpacity <- 0.4
   zeroOpacity <- 0.0
-  fullColour <- "black"
+  # fullColour <- "black"
+  # fullColour <- "#D2691E"   # chocolate
+  # fullColour <- "#8B4513"   # saddlebrown
+  fullColour <- "#008080"  # teal
   paleColour <- "#A0A0A0"  # "gray" is 808080
 
   # first, figure out which scenarios have edits, and which have ROI settings.
@@ -874,26 +876,45 @@ scatterPlotWithSweep <- function() {
   #debugLog(capture.output(print(isolate(gvDefault$workingDataEdits))))
   #debugLog("sweepEdits")
   #debugLog(capture.output(print(sweepEdits)))
-  
-  # for each scenario with edits, figure out which rows are actually different from 
+
+  # for each scenario with edits, figure out which rows are actually different from
   # the base data in the two dimensions being displayed.  only these get marked as edited.
   # first, the default scenario - for which the edited dataset is included in full.
   scatterDF <- isolate(gvDefault$unfilteredData)  # with edits applied
   xProp <- isolate(gvSwitches$xProp)
   yProp <- isolate(gvSwitches$yProp)
+  zProp <- isolate(gvSwitches$zProp)
   baseData <- gvStatics$baseData
   unchangedOnPlot <- (scatterDF[[xProp]] == baseData[[xProp]]) & (scatterDF[[yProp]] == baseData[[yProp]])
   scatterDF$dotShape <- ifelse(unchangedOnPlot, "circle", "diamond")
-  defMask <- isolate(gvDefault$workingDataMask)
-  if (isolate(gvSwitches$showXSDLines)) {
-    if (!is.na(gvStatics$xMean)) {  # if there are enough data rows to define mean & SD
-      xLowSD <- gvStatics$xMean - gvStatics$xSD
-      xHighSD <- gvStatics$xMean + gvStatics$xSD
-      scatterXCol <- scatterDF[[xProp]]
-      coreMask <- scatterXCol>=xLowSD & scatterXCol<=xHighSD
-      scatterDF$dotColour <- ifelse(coreMask, fullColour, paleColour)
-    } else scatterDF$dotColour <- paleColour  # there aren't
-  } else scatterDF$dotColour <- fullColour
+  defMask <- isolate(gvDefault$workingDataMask)      # a collection of booleans
+
+  # allow for permutation
+  perm <- isolate(gvDefault$permutation)
+  if (!identical(perm, 0)) {
+    baseRows <- 1:nrow(baseData)
+    if (is.null(gvStatics$allPermutations)) {
+      nperms <- 9
+      gvStatics$allPermutations <<- lapply(1:nperms, function(x) { sample(baseRows) })
+      gvStatics$allPermutations[[ sample(1:nperms, 1) ]] <<- baseRows   # one has the real data
+    }
+    permedRows <- gvStatics$allPermutations[[perm]]
+    scatterDF[[xProp]] <- scatterDF[[xProp]][permedRows]
+    defMask <- defMask[permedRows]
+  }
+
+  scatterDF$dotColour <- fullColour
+# was previously:
+#   if (isolate(gvSwitches$showXSDLines)) {
+#     if (!is.na(gvStatics$xMean)) {  # if there are enough data rows to define mean & SD
+#       xLowSD <- gvStatics$xMean - gvStatics$xSD
+#       xHighSD <- gvStatics$xMean + gvStatics$xSD
+#       scatterXCol <- scatterDF[[xProp]]
+#       coreMask <- scatterXCol>=xLowSD & scatterXCol<=xHighSD
+#       scatterDF$dotColour <- ifelse(coreMask, fullColour, paleColour)
+#     } else scatterDF$dotColour <- paleColour  # there aren't
+#   } else scatterDF$dotColour <- fullColour
+
   scatterDF$dotSize <- ifelse(defMask, fullSize, minimalSize)
   scatterDF$dotOpacity <- ifelse(defMask, fullOpacity, zeroOpacity)
   scatterDF$scenario <- 0
@@ -930,16 +951,34 @@ scatterPlotWithSweep <- function() {
     scatterDF$dotOpacity <- ifelse(presentInAll, fullOpacity,
                                    ifelse(presentInSome, reducedOpacity, zeroOpacity))
   }
+
+  # add a stringy key field to help with object constancy during updates
   scatterDF$keyField <- as.character(1:nrow(scatterDF))
+
+  # experiment on depth cueing
+  # normalise the z dimension from 0 to 1, then use to project out of the screen - i.e.,
+  # reduce opacity towards the zero end and increase size towards the 1.  sort all rows
+  # so that the 1 end comes last.
+  if (nrow(scatterDF)>1) {
+    zDim <- scatterDF[[zProp]]
+    zNorm <- (zDim-min(zDim))/diff(range(zDim))
+    sizeCoeff <- zNorm*(isolate(gvDefault$zSizeFactor)-1)+1
+    opacityCoeff <- zNorm*0.7 + 0.3      # 0.3 at zNorm=0; 1.0 at zNorm=1
+    scatterDF$dotSize <- scatterDF$dotSize * sizeCoeff * sizeCoeff
+    scatterDF$dotOpacity <- scatterDF$dotOpacity * opacityCoeff
+    scatterDF$zNorm <- zNorm
+    scatterDF <- scatterDF[order(zDim),]
+  }
+
   scatterDF$chartx <- scatterDF[[xProp]]
   scatterDF$charty <- scatterDF[[yProp]]
   scatterDF$dragx <- paste0("x,workingDataEdits,", xProp, ",r_sweep_scatter")
   scatterDF$dragy <- paste0("y,workingDataEdits,", yProp, ",r_sweep_scatter")
-  
+
   scatterDF
 }
 
-tableData <- function(data, dataMask, xProp, yProp, editML, rangeML) {
+tableData <- function(data, dataMask, xProp, yProp, zProp, editML, rangeML) {
   # augment the data with header rows that represent the following metadata
   #  xProp, yProp - a row "meta:xy" with numbers 1 for x, 2 for y, 3 for x&y
   #  column ranges - rows "meta:minima", "meta:maxima"
@@ -949,7 +988,7 @@ tableData <- function(data, dataMask, xProp, yProp, editML, rangeML) {
 
   #   "mpg", "wt" becomes "mpg|wt"
   packedNames <- function(names) { if (length(names)==0) "" else paste0(names, collapse='|') }
-  
+
   dataColumns <- setdiff(names(data), c("originalrow"))
 
   metaRows <- data[1:3,]   # take a copy to work on (hack: we assume data has at least 3 rows)
@@ -962,11 +1001,12 @@ tableData <- function(data, dataMask, xProp, yProp, editML, rangeML) {
   for (col in dataColumns) {
     if (col==xProp) metaRows[1,col] <- 1
     if (col==yProp) metaRows[1,col] <- metaRows[1,col] + 2
+    if (col==zProp) metaRows[1,col] <- metaRows[1,col] + 4
 
     low <- lows[[col]]    # or NULL (including if rangeML is empty)
     #metaRows[2,col] <- if (is.null(low)) unfilteredRanges[[col]][1] else low
     metaRows[2,col] <- if (is.null(low)) 0 else low
-    
+
     high <- highs[[col]]
     #metaRows[3,col] <- if (is.null(high)) unfilteredRanges[[col]][2] else high
     metaRows[3,col] <- if (is.null(high)) 100 else high
@@ -976,15 +1016,15 @@ tableData <- function(data, dataMask, xProp, yProp, editML, rangeML) {
 
   data$filtering <- 1
   data[which(dataMask), "filtering"] <- 0
-  
+
   data$editedColumns <- ""
   for (rowName in names(editML)) {
     data[as.integer(rowName), "editedColumns"] <- packedNames(names(editML[[rowName]]))
   }
-  
+
   # also turn the originalrow column into a bunch of strings, to fit with our metadata labels
   data$originalrow <- as.character(data$originalrow)
-  
+
   rbind(metaRows, data)
 }
 
@@ -1083,14 +1123,15 @@ sendQueuedData <- function() {
       axisSpec <- isolate(gvDefault$axisSpec)
       if (!identical(axisSpec, gvStatics$lastAxisSpec)) {
         axSpecName = "r_default_axisSpec"
-        chartQueue[[axSpecName]] <- as.vega(axisSpec, axSpecName)  
-        gvStatics$lastAxisSpec <<- axisSpec          
+        chartQueue[[axSpecName]] <- as.vega(axisSpec, axSpecName)
+        gvStatics$lastAxisSpec <<- axisSpec
       }
     }
-    
+
     session$sendCustomMessage("ggvis_lively_data", list(      # use most recently supplied session
       chartId = id,
       duration = duration,
+      commandIndex = gvStatics$commandIndex,
       valueList = chartQueue
     ))
   }
@@ -1104,7 +1145,7 @@ startQuiescencePoll <- function() { gvReactives$quiescent <- FALSE }
 updatesHaveQuiesced <- function(session) {
   if (isolate(gvReactives$quiescent)) return  # someone else (probably gatherResultAndContinue) has taken care of it
 
-  # if we were still waiting for some chart reactives to refresh themselves, we now know it ain't 
+  # if we were still waiting for some chart reactives to refresh themselves, we now know it ain't
   # going to happen.
   if (gvStatics$waiting_for_refresh) cancelWaitForRefresh()
 
@@ -1112,7 +1153,7 @@ updatesHaveQuiesced <- function(session) {
 
   session$sendCustomMessage("ggvis_lively_quiescent", list(plotState=capturedPlotState(), scenarioColours=gvStatics$scenarioColours))
   # prevShinyInvalidations <<- -1   # so we'll always wait at least one cycle
-  gvReactives$quiescent <- TRUE  
+  gvReactives$quiescent <- TRUE
 }
 
 capturedPlotState <- function() {
@@ -1151,7 +1192,8 @@ handleTriggerMessage <- function(msg, session) {
   if (!is.null(annotations)) {
     if (!is.null(annotations$historyPseudoIndex)) gvStatics$historyPseudoIndex <<- annotations$historyPseudoIndex
     if (!is.null(annotations$plotUpdateDuration)) gvStatics$plotUpdateDuration <<- annotations$plotUpdateDuration
-  }    
+    if (!is.null(annotations$commandIndex)) gvStatics$commandIndex <<- annotations$commandIndex
+  }
 }
 
 handleCommand <- function(msg, session) {
@@ -1185,6 +1227,9 @@ handleCommand <- function(msg, session) {
     refreshChart('plot1'); refreshChart('plot2');
     gvSwitches$xProp <- args[["x"]]     # NB: can't use $ because it's a named vector, not a list
     gvSwitches$yProp <- args[["y"]]
+    gvSwitches$zProp <- args[["z"]]
+    gvStatics$allPermutations <<- NULL           # new axes means new permutation
+    #update_defaultReactive("permutation", 0)
   } else if (command == "visitScenario") {
     gvStatics$plotUpdateDuration <<- fastUpdate
     visitScenario(args[["scenario"]])
@@ -1224,7 +1269,7 @@ handleCommand <- function(msg, session) {
     # the command has a "type" (data/parameter) and a "target"
     #   for data, target is { dataset, row, xycolumns } - one of xycolumns can be "-"
     #   for parameter, target is a stringy parameter name
-    # then a scenarios collection: [0] for default, [n] (1 to 10) for an individual 
+    # then a scenarios collection: [0] for default, [n] (1 to 10) for an individual
     #   sweep scen (which must already exist), or 1..n to set up a new sweep
     # and a corresponding values collection.
     # NB: row and scenarios are numeric, but because we use toFixed on numeric values they are always strings
@@ -1249,7 +1294,7 @@ handleCommand <- function(msg, session) {
       } else if (numEditScenarios>1) {
         # creating a new sweep.  first (re)initialise all sweep variables.
         setupNewSweep(numEditScenarios)
-        # then set up an empty sweep set for this one 
+        # then set up an empty sweep set for this one
         editMLSweep <- lapply(1:numEditScenarios, function(x) list())
       } else {
         editMLSweep <- isolate(gvSweep[[dataset]])
@@ -1259,7 +1304,7 @@ handleCommand <- function(msg, session) {
         scen <- scenarios[[si]]
         mList <- if (scen==0) editML else editMLSweep[[scen]]
         xyvalues <- as.numeric(values[[si]])
-        
+
         # minor hack: for workingDataRanges, map edits to rows 3 and 4 onto ML rows 1 & 2
         if (dataset=="workingDataRanges") {
           if (row>2) row <- row - 2
@@ -1273,7 +1318,7 @@ handleCommand <- function(msg, session) {
 #                 rawValue <- xyvalues[[i]]
 #                 dimensionRange <- gvStatics$unfilteredRanges[[column]]
 #                 value <- round((rawValue-dimensionRange[[1]])/diff(dimensionRange)*100) # as integer %
-#               } 
+#               }
               value <- xyvalues[[i]]
               otherLimit <- mList[[otherRow]][[column]]
               if (!is.null(otherLimit)) {
@@ -1283,7 +1328,7 @@ handleCommand <- function(msg, session) {
             }
           }
         }
-        
+
         rowIndex <- as.character(row)
         rowList <- mList[[rowIndex]]
         if (is.null(rowList)) rowList <- list()
@@ -1298,7 +1343,7 @@ handleCommand <- function(msg, session) {
       else update_sweepReactive(dataset, editMLSweep)
     } else {           # assume type is "parameter"
       # target is a parameter-name string
-      # as for data, scenarios is 0 for default, n (1 to 10) for an individual 
+      # as for data, scenarios is 0 for default, n (1 to 10) for an individual
       # sweep scen (which must already exist), or 1..n to set up a new sweep.
       parm <- target
       values <- as.numeric(values)
@@ -1336,7 +1381,7 @@ harvestIterationResult <- function(session) {
     data_content <- bindSweepSplitDFs(gvStatics$iterationResults, "stroke", list(stroke="black"))
     #debugLog(capture.output(print(data_content)))
     chartId = "plot1"
-    data_name <- "r_sweep_lmLine" 
+    data_name <- "r_sweep_lmLine"
     dataName <- paste0(data_name, "_tree")
     dataValue <- list(list(
       name = dataName,
@@ -1345,7 +1390,7 @@ harvestIterationResult <- function(session) {
     ))
     valueList <- list()
     valueList[[dataName]] <- dataValue
-    
+
     duration <- 0
     session$sendCustomMessage("ggvis_lively_data", list(      # use most recently supplied session
       chartId = chartId,
@@ -1353,13 +1398,13 @@ harvestIterationResult <- function(session) {
       valueList = valueList
     ))
   }
-  
+
   session$sendCustomMessage("ggvis_lively_quiescent", list())
   gvReactives$quiescent <- TRUE
 }
 
 
-# CURRENTLY NOT USED: experiment in iterating through multiple commands, accumulating 
+# CURRENTLY NOT USED: experiment in iterating through multiple commands, accumulating
 # results (here hard-coded as nrow of workingData) until the supply of commands runs out.
 gatherResultAndContinue <- function(session) {
   gvStatics$iterationResults <<- c(gvStatics$iterationResults, nrow(isolate(gvDefault$workingData)))

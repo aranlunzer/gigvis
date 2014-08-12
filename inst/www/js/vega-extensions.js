@@ -3,7 +3,7 @@
 
 // table function adapted from example at
 // http://www.devforrest.com/blog/scrollable-sortable-html-table-with-static-headers-using-d3-js/
-function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, dimensions) {
+function drawTable(rowItems, xProp, yProp, zProp, minimaRow, maximaRow, table_element, dimensions) {
     // removed sorting code.  if you want it back, look at gigvis-expt4 or earlier.
     // The supplied table_element is an xhtml body element within a foreignObject, embedded
     // in the svg for a chart.
@@ -19,7 +19,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
     dataColumns.remove("originalrow");
     dataColumns.remove("filtering");
     dataColumns.remove("editedColumns");
-    
+
     var editedColStr = minimaRow.editedColumns;
     var editedMinima = (editedColStr == "") ? [] : editedColStr.split("|");
     editedColStr = maximaRow.editedColumns;
@@ -31,12 +31,13 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
         var annotation = "";
         if (col==xProp) annotation = "x";
         if (col==yProp) annotation = annotation+"y";
+        if (col==zProp) annotation = annotation+"z";
         headerItems.push([{datacolumn: col, annotation: annotation}]);
         minimaItems.push([{datacolumn: col, value: minimaRow[col], dragx: "tablecell,workingDataRanges," + col + ",r_default_rangeControls", datarole: 1}]);
         maximaItems.push([{datacolumn: col, value: maximaRow[col], dragx: "tablecell,workingDataRanges," + col + ",r_default_rangeControls", datarole: 2}]);
       });
-    Shiny.propLatest = { x: xProp, y: yProp };
-    
+    Shiny.propLatest = { x: xProp, y: yProp, z: zProp };
+
     var tableRoot = d3.select(table_element);
     // Iff the table hasn't been built yet, build it now.
     // one outer table for the whole data collection
@@ -68,26 +69,22 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
         .append("table").attr("border", 1).attr("width", twidth).attr("height", dataTHeight).attr("style", "table-layout:fixed; border-collapse:collapse; font-size:12px")  // fixed layout because otherwise we can't figure out the widths for the header row (which is also a table)
         .append("tbody").attr("class", "mainTable");
     }  // end of table building
-    
+
     // now load the headerNames row with the column-name items, with some behaviour
-    var switchCols = function(newXCol, newYCol) {
-        // either argument can be null, meaning "leave as is".
+    var switchCols = function(newXCol, newYCol, newZCol) {
+        // any argument can be null, meaning "leave as is".
         // check whether values are same as those most recently used
         var latest = Shiny.propLatest;
-        var newX = newXCol || latest["x"];
-        var newY = newYCol || latest["y"];
-        if (newX == latest["x"] && newY == latest["y"]) return;
-        
-        Shiny.propHistory = latest;
-        
+        var newX = newXCol || latest.x;
+        var newY = newYCol || latest.y;
+        var newZ = newZCol || latest.z;
+        if (newX == latest.x && newY == latest.y && newZ == latest.z) return;
+
+        Shiny.propLatest = { x: newX, y: newY, z: newZ };    // will also be set by table code, but that's ok
+
         $world.setHandStyle("wait");
-        Shiny.historyManager().addParameterRangeItem(Shiny.chartNamed("plot1"), "newXYProps", "axes", [ { x: newX, y: newY } ], null);
-        Shiny.buildAndSendMessage("command", [ "newXYProps", { x: newX, y: newY } ]);
-    }
-    var revertLastChange = function() {
-        // NO LONGER USED
-        // revert to the columns stored in history, if any.
-        switchCols(Shiny.propHistory["x"], Shiny.propHistory["y"]);
+        Shiny.historyManager().addParameterRangeItem(Shiny.chartNamed("plot1"), "newXYProps", "axes", [ { x: newX, y: newY, z: newZ } ], null);
+        Shiny.buildAndSendMessage("command", [ "newXYProps", { x: newX, y: newY, z: newZ } ]);
     }
     var swapXY = function() {
         switchCols(Shiny.propLatest["y"], Shiny.propLatest["x"]);
@@ -118,21 +115,21 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
     .on("dblclick", swapXY)
     .on("keydown", function(d) {
         // console.log(d3.event.getKeyChar());
-        if (d3.event.getKeyChar() == "X") switchCols(d[0].datacolumn, null);
-        else if (d3.event.getKeyChar() == "Y") switchCols(null, d[0].datacolumn);
-        // else if (d3.event.getKeyCode() == Event.KEY_SPACEBAR) revertLastChange();   DISABLED
+        if (d3.event.getKeyChar() == "X") switchCols(d[0].datacolumn, null, null);
+        else if (d3.event.getKeyChar() == "Y") switchCols(null, d[0].datacolumn, null);
+        else if (d3.event.getKeyChar() == "Z") switchCols(null, null, d[0].datacolumn);
         d3.event.stopPropagation();
         d3.event.preventDefault();
         });
-    
+
     headerNames
     .text(function (d) { return d[0].datacolumn; })
-    
+
     // and the annotations row with x and y indicators
     var annotationCells = tableRoot.select("tr.headerXY").selectAll("th").data(headerItems);
     annotationCells.enter().append("th");
     annotationCells.text(function (d) { return d[0].annotation });
-    
+
     // minima and maxima rows
     var minimaCells = tableRoot.select("tr.minima").selectAll("td").data(minimaItems);
     minimaCells.enter().append("td");
@@ -141,23 +138,23 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
     .attr("style", function(d) {
           return "color: " + (editedMinima.indexOf(d[0].datacolumn) == -1 || d[0].value == "0" ? "black" : "#E00000")
     });
-    
+
     var maximaCells = tableRoot.select("tr.maxima").selectAll("td").data(maximaItems);
     maximaCells.enter().append("td");
     maximaCells.each(function(d) { d[0]._element = this });
     maximaCells.text(function (d) { return d[0].value })
     .attr("style", function(d) {
-          return "color: " + (editedMaxima.indexOf(d[0].datacolumn) == -1 || d[0].value == "100"  ? "black" : "#E00000") 
+          return "color: " + (editedMaxima.indexOf(d[0].datacolumn) == -1 || d[0].value == "100"  ? "black" : "#E00000")
     });
-    
+
     // then an inner-table row for each element of the data
     var rows = tableRoot.select("tbody.mainTable").selectAll("tr").data(rowItems);
     rows.enter()
     .append("tr"); //.sort(sortValueDescending);
-    
+
     rows
     .each(function(d) { d._svg = this });
-    
+
     // a cell for each column of the row
     // NB: we assume each row is an item with a field corresponding to each column name
     // We also take advantage of the fact that Vega's svgHandler will look at a DOM element's
@@ -171,10 +168,10 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
             // We return a collection of objects, one to be stored in the __data__ of each td.
             return dataColumns.map(function (column) { return [d, column] });  // we'll look up the value later
             });
-    
+
     cells.enter()
     .append("td");
-    
+
     /*  Any benefit to giving the cells values, rather than just deriving them every time?
      cells
      .datum(function(d, i, j) {
@@ -219,9 +216,9 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
             vg.scene.bounds.oldItem(item, func, opt);
         }
     }
-    
+
     // vg.svg.marks.nested["lively_table"] = true;  only used in vg.svg.Renderer.prototype.renderItems
-    
+
     vg.svg.marks.update["lively_table"] = function(o) {
         // a single item within a lively_table mark is being (re)rendered
         //debugger;
@@ -235,7 +232,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
             this.style.removeProperty("background-color");
         }
     };
-    
+
     vg.svg.marks.draw["lively_table"] =
         vg.svg.marks.draw["draw"]("g",
             function(items) {
@@ -245,26 +242,26 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
               // it seems that Vega doesn't normally create DOM elements in draw functions.
               // this is why we take care to reuse any elements we do create - in this case, a
               // container for an html table.
-              
+
               // debugger;
-              
+
               var mark = items[0].mark;
               var w = mark.bounds.width();
               var h = mark.bounds.height();
               if ($(this).find(".tablecontainer").length == 0) {
                 // console.log("appending");
-                var foreign = d3.select(this).append("foreignObject").attr("x",40).attr("y",30).attr("width", w).attr("height", h);
+                var foreign = d3.select(this).append("foreignObject").attr("x",50).attr("y",10).attr("width", w).attr("height", h);
                 foreign.append("xhtml:body").attr("class","tablecontainer").attr("style", "margin:0; padding:0");
               }
               // console.log("table:", mark);
-              
+
               // extract any table metadata that the sender has encoded in items with special
               // values for "originalrow":
-              //   "meta:xy" encodes the x and y column annotations (1=x, 2=y, 3=both)
+              //   "meta:xy" encodes the x and y column annotations (1=x, 2=y, 4=z)
               //   "meta:minima" and "meta:maxima" contain the min and max for the columns; edited range settings are encoded in the "editedColumns" column.
               // we assume metadata rows will be at the start of the data
               var row = 0;
-              var xProp, yProp, minimaRow, maximaRow;
+              var xProp, yProp, zProp, minimaRow, maximaRow;
               var rowData;
               while ((rowData = items[row].datum.data).originalrow.indexOf("meta:") != -1) {
                 if (rowData.originalrow == "meta:xy") {
@@ -272,6 +269,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
                     if (col != "originalrow" && col != "tableTextColour") {
                       if (rowData[col] & 1) xProp = col;
                       if (rowData[col] & 2) yProp = col;
+                      if (rowData[col] & 4) zProp = col;
                     }
                   });
                 } else if (rowData.originalrow == "meta:minima") {
@@ -281,13 +279,13 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
                 }
                 row++;
               }
-              
+
               // for the true table data rows, use values from the "originalrow" column for a "datarows" annotation in the format expected by the brushing code in shiny-ggvis
-              var rowItems = items.slice(row);      
+              var rowItems = items.slice(row);
               for (var i=0; i<rowItems.length; i++) { rowItems[i]["datarows"] = "[" + rowItems[i].datum.data.originalrow + "]" };
-    
+
               var container = $(this).find(".tablecontainer")[0];
-              drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, container, { width: w-40, height: h-40 })
+              drawTable(rowItems, xProp, yProp, zProp, minimaRow, maximaRow, container, { width: w-75, height: h-40 })
               },
               true);  // nest the data items
 
@@ -329,7 +327,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
             }
             });
     vg.svg.marks.customSymbolTypes = vg.svg.marks.customSymbols.keys();
-    
+
     // replicate d3.svg.symbol, so our custom symbols behave just like the d3 ones
     vg.svg.marks.customSymbol = function() {
         function d3_functor(v) {
@@ -337,7 +335,7 @@ function drawTable(rowItems, xProp, yProp, minimaRow, maximaRow, table_element, 
                 return v;
             };
         }
-        var type = function() { return "" }, size = function() { return 64 };  // note: Vega sets own default size of 100 
+        var type = function() { return "" }, size = function() { return 64 };  // note: Vega sets own default size of 100
         function symbol(d, i) {
             return (vg.svg.marks.customSymbols.get(type.call(this, d, i)))(size.call(this, d, i));
         }

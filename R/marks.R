@@ -40,7 +40,7 @@ mark_symbol <- function(props = NULL, data = NULL)
   mark("symbol", props = props, data = data)
 #' @export
 valid_mark_properties.mark_symbol <- function(mark) {
-  c("x", "y", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
+  c("x", "y", "z", "opacity", "fill", "fillOpacity", "stroke", "strokeWidth",
     "strokeOpacity", "size", "shape", "key", "datarows", "scenario", "sharedProvenance", "dragx", "dragy")
 }
 #' @export
