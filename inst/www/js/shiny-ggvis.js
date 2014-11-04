@@ -649,7 +649,7 @@ console.log("click");
       }).bind(chart));
 
       chart.on("dblclick", (function(evt, item) {
-        // console.log("double click on", item);
+//console.log("double click on", item);
         if (item.dragx || item.dragy) {        // this is an item the user can drag
           var xSpec = parseDragSpec(item.dragx);   // may be null
           var ySpec = parseDragSpec(item.dragy);   // ditto
@@ -675,7 +675,7 @@ console.log("click");
         //      0 -> { dataset: "workingData", column: "wt", row: 6, value: 3.5 }
         //      1 -> { dataset: "workingData", column: "mpg", row: 6, value: 15 }
 
-console.log("mousedown", item);
+//console.log("mousedown", item);
 
         // DEMO HACK
         var doGather = false;
@@ -686,7 +686,7 @@ console.log("mousedown", item);
         this.lastDragEvent = null;
 
         if (item.dragx || item.dragy) {        // this is an item the user can drag
-console.log("draggable item");
+//console.log("draggable item");
           var handleSize = 8;
           var handle = lively.morphic.Morph.makePolygon(
                 [pt(-handleSize, 0), pt(handleSize, 0), pt(0, 0), pt(0, -handleSize), pt(0, handleSize), pt(0,0)], 3, Color.black, Color.black);
@@ -714,22 +714,21 @@ console.log("draggable item");
           var xColumn = handle.xSpec ? handle.xSpec.column : "-";
           var yColumn = handle.ySpec ? handle.ySpec.column : "-";
 
-          var itemStartPosition = evt.getPosition(); // though this will be refined for on-chart items
-
-          // dragging in cells is indicated by "tablecell" scale
-          if (xScale == "tablecell") {
+          handle.mouseDownPos = evt.getPosition();
+          if (xScale == "tablecell") {   // it's a drag in a table
             this.dragCell = item._element;
+            handle.dragStartPos = handle.mouseDownPos;  // in this case, same thing
             handle.dragStartValue = item.value;
             var chartWidth = 600;  // ought to look it up
             handle.convertEvtPoint = function(evtPos) { return pt(Math.min(100, Math.max(0, Math.round(handle.dragStartValue + (evtPos.x - handle.dragStartPos.x)*100/(0.33*chartWidth)))), -1000) };
           } else {
-            // if we use evt.getPosition() as the start of the drag on a chart item, it will be
-            // offset from the coord of the item being dragged.
-            itemStartPosition = this.localPointToGlobal(pt(item.x, item.y));
+            // don't use evt.getPosition() as the start of the drag on a
+            // chart item, because it's bound to be offset from
+            // the coord of the item being dragged.
+            handle.dragStartPos = this.localPointToGlobal(pt(item.x, item.y));
             handle.convertEvtPoint = function(evtPos) { return handle.chart.toChartCoords(evtPos, true, xScale, yScale) };
             //console.log("axis defs at drag start: ", Shiny.xMin, Shiny.xMax, Shiny.yMin, Shiny.yMax);
           }
-          handle.dragStartPos = itemStartPosition;
           handle.dragPositions = [handle.dragStartPos];
           handle.dragToPoint = function(evtPos) {
             Shiny.historyManager().storeCommandAnnotation({ historyString: "non-indexed value" });    // a string guaranteed not to generate a valid history pseudo-index
@@ -739,23 +738,23 @@ console.log("draggable item");
           // handle.onFocus = function() { console.log("handle focus") }
           // handle.onBlur = function() { console.log("handle blur") }
 
-          handle.throttledMoveHandler = Functions.throttle((function(handlePos) {
+          handle.throttledMoveHandler = Functions.throttle((function(dragPos) {
             // now we're not relying on the system to detect a fully formed
             // drag, we do it for ourselves.
             if (!this.chart.lastMouseWasDrag) {
-              this.chart.lastMouseWasDrag = handlePos.dist(this.dragStartPos) > 8;
+              this.chart.lastMouseWasDrag = dragPos.dist(this.dragStartPos) > 8;
             }
 
             if (this.chart.lastMouseWasDrag) {
               this.lastDragEvent = LastEvent;
-              this.lastDragPos = handlePos;
-              this.dragPositions.push(handlePos);
+              this.lastDragPos = dragPos;
+              this.dragPositions.push(dragPos);
               if (this.rangeLine) {
                 var vs = this.rangeLine.vertices();
-                vs[1] = vs[0].addPt(handlePos.subPt(this.rangeStartPos));
+                vs[1] = vs[0].addPt(dragPos.subPt(this.rangeStartPos));
                 this.rangeLine.setVertices(vs);
               }
-              this.dragToPoint(handlePos);
+              this.dragToPoint(dragPos);
             }
           }).bind(handle), 300);       // @@ not sure what makes for a good time value here
 
@@ -766,14 +765,15 @@ console.log("draggable item");
           }).bind(handle);
           */
 
-          handle.addScript(function onHandleMove(handlePos) {
+          handle.addScript(function onHandleMove(handPos) {
 //console.log("handleMove");
             // DEBUG this.focus();  // to be sure we get any keystrokes
-            this.throttledMoveHandler(handlePos);
+            var dragPos = handPos.subPt(this.mouseDownPos).addPt(this.dragStartPos);
+            this.throttledMoveHandler(dragPos);
           }).bind(handle);
 
           handle.addScript(function disconnectHandleMove() {
-console.log("disconnecting hand");
+//console.log("disconnecting hand");
             lively.bindings.disconnect($world.firstHand(), '_Position', this, 'onHandleMove');
           }).bind(handle);
 
@@ -787,7 +787,7 @@ console.log("disconnecting hand");
               evt.stop();
               return false;
             } else if (keyCode === Event.KEY_ALT || keyCode === Event.KEY_SHIFT) {
-console.log("handle alt...");
+//console.log("handle alt...");
               // Pressing alt or shift during a drag deletes all but the last recorded drag position.  But later releasing shift does nothing, whereas releasing alt immediately uses the positions up to then as a sweep.
               if (keyCode === Event.KEY_ALT) this.setBorderColor(Color.red);
               this.dragPositions = [this.dragPositions.last()];
@@ -827,7 +827,7 @@ console.log("handle alt...");
               if (evt.isShiftDown()) dragType = "jog";
               else if (evt.isAltDown()) dragType = "sweep";
             }
-console.log("dropped: "+dragType);
+//console.log("dropped: "+dragType);
             this.chart.endDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint, dragType);
           }).bind(handle);
 
