@@ -600,6 +600,8 @@ oneTimeInitShinyGgvis = function() {
         // event point into an abstract point with coords in x and/or y.
         // if absolute is true, assume we need to subtract the chart origin.
         var chartTop = 0, chartLeft = 0;
+        if (xScale == "tablecell") return evtPt;
+
         if (absolute) {
           var chartRect = $(this._el).bounds();
           var padding = this.padding();
@@ -628,7 +630,7 @@ oneTimeInitShinyGgvis = function() {
       }).bind(chart);
 
       chart.on("click", (function(evt, item) {  // NB: non-morphic event
-console.log("click");
+//console.log("click");
         if (this.lastMouseWasDrag) return;      // this is just the mouse-up after a drag
 
         var clickType;
@@ -831,8 +833,13 @@ console.log("click");
             this.chart.endDrag(this.xSpec, this.ySpec, this.itemRow, this.dragPositions, this.convertEvtPoint, dragType);
           }).bind(handle);
 
-          handle.getGrabShadow = function() { return new lively.morphic.Morph() };
+          handle.getGrabShadow = function() {
+            var sm = new lively.morphic.Morph();
+            sm.isGrabShadow = true;
+            return sm
+          };
 
+//console.log("GRAB!!");
           evt.hand.grabMorph(handle, evt);  // NB: sends stop() to the event
           handle.setPosition(pt(-4,-4));
           lively.bindings.connect($world.firstHand(), '_Position', handle, 'onHandleMove');
